@@ -8,22 +8,27 @@
  *
  * Each world declares which zones it claims to honor. `freeside doctor`
  * cross-references this with the zones manifest to surface drift.
+ *
+ * Canonical schema lives here; commands import worldSchema for output:
+ * declarations. This is the single source of truth (per bridgebuilder PR #11
+ * MEDIUM · worldDetailSchema duplication eliminated).
  */
+import { z } from 'incur'
 
-export interface World {
-  id: string
-  domain?: string
-  zones_claimed: string[]
-  substrate: {
-    /** primary deployment platform */
-    deploy: 'vercel' | 'railway' | 'self-hosted'
-    /** primary data store */
-    data?: 'railway-postgres' | 'supabase' | 'convex' | 'self-hosted' | 'none'
-  }
-  status: 'live' | 'staging' | 'archived' | 'planned'
-  repo?: string
-  notes?: string
-}
+export const worldSchema = z.object({
+  id: z.string(),
+  domain: z.string().optional(),
+  zones_claimed: z.array(z.string()),
+  substrate: z.object({
+    deploy: z.enum(['vercel', 'railway', 'self-hosted']),
+    data: z.enum(['railway-postgres', 'supabase', 'convex', 'self-hosted', 'none']).optional(),
+  }),
+  status: z.enum(['live', 'staging', 'archived', 'planned']),
+  repo: z.string().optional(),
+  notes: z.string().optional(),
+})
+
+export type World = z.infer<typeof worldSchema>
 
 export const WORLDS: World[] = [
   {

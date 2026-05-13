@@ -13,10 +13,16 @@
  */
 import { z } from 'incur'
 
+// Per-arg/option value type. CTAs carry machine-readable hints for agents
+// invoking subsequent commands — values are primitives (strings, numbers,
+// booleans) by convention. Constrained from z.any() per bridgebuilder PR #11
+// LOW finding (defense against arbitrary data injection in MCP path).
+const ctaValueSchema = z.union([z.string(), z.number(), z.boolean()])
+
 export const ctaCommandSchema = z.object({
   command: z.string(),
-  args: z.record(z.string(), z.any()).optional(),
-  options: z.record(z.string(), z.any()).optional(),
+  args: z.record(z.string(), ctaValueSchema).optional(),
+  options: z.record(z.string(), ctaValueSchema).optional(),
   description: z.string().optional(),
 })
 

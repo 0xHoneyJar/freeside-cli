@@ -286,30 +286,47 @@ describe('Sprint 2 · agent surface', () => {
     })
   })
 
-  describe('T3 · single-source gap detection (F-LOW-4)', () => {
-    test('zone with gaps[] does NOT also emit status-derived finding', async () => {
-      // discord-deploy is aspirational AND has 4 gaps.
-      // Pre-T3 emitted 5 findings (status + 4 gaps).
-      // Post-T3 emits only the 4 gaps (single-source).
+  describe('T3 · three independent signals (post bridgebuilder PR #11 HIGH fix)', () => {
+    test('aspirational zone with gaps[] emits gap entries + status + consumer-zero', async () => {
+      // discord-deploy: status=aspirational · 4 gaps · 0 consumers.
+      // Per bridgebuilder PR #11 HIGH: three signals stay independent.
       const r = await run(['doctor', 'check', '--zone', 'discord-deploy', '--json'])
       const data = parseJson(r.stdout)
       const messages = data.findings.map((f: any) => f.message)
-      // gaps[] entries are present
+      // (1) item-level gaps[] entries
       expect(messages.some((m: string) => m.includes('no port file extant'))).toBe(true)
-      // status-derived "Aspirational zone — port/schema/adapter not yet extant"
-      // message should NOT be present when gaps[] is non-empty
-      expect(messages.some((m: string) => m.startsWith('Aspirational zone — port/schema/adapter'))).toBe(false)
+      expect(messages.some((m: string) => m.includes('verification flow shape unclear'))).toBe(true)
+      // (2) zone-level status signal (renamed · semantically distinct from gaps)
+      expect(messages.some((m: string) => m.startsWith('Status: aspirational'))).toBe(true)
+      // (3) consumer-zero signal (restored per HIGH finding)
+      expect(messages.some((m: string) => m.includes('Zero verified consumers'))).toBe(true)
     })
 
-    test('zone with empty gaps[] still gets status-derived fallback finding', async () => {
-      // No zone currently ships with gaps:[] AND status:'aspirational'/'draft' simultaneously.
-      // This test verifies the fallback path: doctor still surfaces something
-      // when the manifest doesn't enumerate gaps explicitly. Pure-shape check
-      // by counting findings for any zone — must produce ≥1 if zone is not active/extracted.
+    test('draft-status warning fires alongside gaps (distinct semantics)', async () => {
+      // worlds zone is draft with gaps. Per bridgebuilder PR #11 MEDIUM:
+      // draft warning is a different semantic class from individual gaps.
+      const r = await run(['doctor', 'check', '--zone', 'worlds', '--json'])
+      const data = parseJson(r.stdout)
+      const messages = data.findings.map((f: any) => f.message)
+      expect(messages.some((m: string) => m.startsWith('Status: draft'))).toBe(true)
+    })
+
+    test('consumer-zero check fires for zones lacking verified consumers', async () => {
+      // discord-deploy + worlds both have effectively zero verified consumers.
       const r = await run(['doctor', 'check', '--json'])
       const data = parseJson(r.stdout)
-      // every aspirational/draft zone gets at least one finding (gap OR status-fallback)
-      expect(data.summary.total).toBeGreaterThan(0)
+      const zerocons = data.findings.filter((f: any) =>
+        f.message.includes('Zero verified consumers'),
+      )
+      expect(zerocons.length).toBeGreaterThan(0)
+    })
+
+    test('active zones with verified consumers do NOT emit consumer-zero', async () => {
+      // characters has freeside-characters consumer. storage has freeside-characters + mibera-dimensions.
+      const r = await run(['doctor', 'check', '--zone', 'storage', '--json'])
+      const data = parseJson(r.stdout)
+      const messages = data.findings.map((f: any) => f.message)
+      expect(messages.some((m: string) => m.includes('Zero verified consumers'))).toBe(false)
     })
   })
 })

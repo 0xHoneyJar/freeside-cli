@@ -34,26 +34,51 @@ function diagnose(zoneFilter?: string): Finding[] {
   for (const z of zonesToCheck) {
     if (!z) continue
 
-    // T3 single-source: gaps[] is canonical when present.
-    // status-derived finding fires only when gaps[] is empty (preserving
-    // signal that something is non-active without redundant duplication).
-    if (z.gaps && z.gaps.length > 0) {
-      for (const gap of z.gaps) {
-        findings.push({ level: 'gap', scope: 'zone', ref: z.id, message: gap })
-      }
-    } else if (z.status === 'aspirational') {
+    // T3 single-source applies to MESSAGE-LEVEL redundancy (zone.gaps[] entries
+    // are item-level details; the original status-finding "Aspirational zone —
+    // port/schema/adapter not yet extant" overlapped with gap[0] "no port file
+    // extant"). Three independent signals stay independent:
+    //   1. item-level: gaps[] entries (always emit)
+    //   2. zone-level status warning (always emit when non-active/extracted ·
+    //      summarizes that the zone-as-a-whole isn't ready)
+    //   3. consumer-zero check (always emit · orthogonal · per bridgebuilder
+    //      HIGH finding on PR #11)
+    // The "single source" intent is: gap MESSAGES come from gaps[]; status
+    // MESSAGES come from status; consumer MESSAGES come from consumer-empty
+    // detection. No emission writes another's content.
+
+    // (1) item-level gaps
+    for (const gap of z.gaps ?? []) {
+      findings.push({ level: 'gap', scope: 'zone', ref: z.id, message: gap })
+    }
+
+    // (2) zone-level status warning (orthogonal to gaps · summarizes zone state)
+    if (z.status === 'aspirational') {
       findings.push({
         level: 'gap',
         scope: 'zone',
         ref: z.id,
-        message: `Aspirational zone — port/schema/adapter not yet extant. Home: ${z.home}`,
+        message: `Status: aspirational — zone not yet materialized. Home: ${z.home}`,
       })
     } else if (z.status === 'draft') {
       findings.push({
         level: 'warn',
         scope: 'zone',
         ref: z.id,
-        message: `Draft zone — schema published but consumer story incomplete`,
+        message: `Status: draft — schema published but consumer story incomplete`,
+      })
+    }
+
+    // (3) consumer-zero check (orthogonal · per bridgebuilder PR #11 HIGH finding)
+    const verifiedConsumers = z.consumers.filter(
+      (c) => c && !c.startsWith('(') && !c.includes('(deployed instance)'),
+    )
+    if (verifiedConsumers.length === 0) {
+      findings.push({
+        level: 'warn',
+        scope: 'zone',
+        ref: z.id,
+        message: `Zero verified consumers — composition thesis unproven for this zone`,
       })
     }
   }
@@ -139,16 +164,26 @@ doctor.command('check', {
     for (const f of findings) {
       by_level[f.level] = (by_level[f.level] ?? 0) + 1
     }
+    // F-LOW · dynamic "most-gap zone" rather than hardcoded discord-deploy
+    const gapsByZone: Record<string, number> = {}
+    for (const f of findings) {
+      if (f.scope === 'zone') {
+        gapsByZone[f.ref] = (gapsByZone[f.ref] ?? 0) + 1
+      }
+    }
+    const mostGapZone = Object.entries(gapsByZone).sort((a, b) => b[1] - a[1])[0]?.[0]
     const cta = {
       description: 'Next:',
-      commands: [
-        {
-          command: 'zones show',
-          args: { id: 'discord-deploy' },
-          description: 'Inspect the most-gap zone',
-        },
-        { command: 'zones list', description: 'Back to overview' },
-      ],
+      commands: mostGapZone
+        ? [
+            {
+              command: 'zones show',
+              args: { id: mostGapZone },
+              description: `Inspect the most-gap zone (${gapsByZone[mostGapZone]} findings)`,
+            },
+            { command: 'zones list', description: 'Back to overview' },
+          ]
+        : [{ command: 'zones list', description: 'Back to overview' }],
     }
     return c.ok(
       {

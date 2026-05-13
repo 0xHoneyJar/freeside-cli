@@ -120,6 +120,24 @@ zones.command('show', {
         { command: 'zones list', description: 'Back to zones overview' },
       ],
     }
-    return c.ok({ ...z, cta }, { cta })
+    // Explicit field pick · consistent with worlds.show pattern · per
+    // bridgebuilder PR #11 LOW finding (no field-passthrough risk if Zone
+    // gains new fields not in zoneDetailSchema)
+    return c.ok(
+      {
+        id: z.id,
+        description: z.description,
+        ports: z.ports,
+        schemas: z.schemas,
+        home: z.home,
+        adapters: z.adapters,
+        status: z.status,
+        consumers: z.consumers,
+        tiering: z.tiering,
+        gaps: z.gaps,
+        cta,
+      },
+      { cta },
+    )
   },
 })

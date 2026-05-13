@@ -1,5 +1,5 @@
 import { Cli, z } from 'incur'
-import { WORLDS, findWorld } from '../worlds/registry.ts'
+import { WORLDS, findWorld, worldSchema } from '../worlds/registry.ts'
 import { findZone } from '../zones/manifest.ts'
 import { ctaSchema } from '../lib/cta.ts'
 
@@ -66,19 +66,11 @@ const zoneResolutionSchema = z.object({
   home: z.string().nullable(),
 })
 
+// World shape derives from canonical worldSchema (registry single-source).
+// Per bridgebuilder PR #11 MEDIUM finding · eliminates drift risk if registry
+// gains/renames fields.
 const worldDetailSchema = z.object({
-  world: z.object({
-    id: z.string(),
-    domain: z.string().optional(),
-    zones_claimed: z.array(z.string()),
-    substrate: z.object({
-      deploy: z.string(),
-      data: z.string().optional(),
-    }),
-    status: z.string(),
-    repo: z.string().optional(),
-    notes: z.string().optional(),
-  }),
+  world: worldSchema,
   zone_resolution: z.array(zoneResolutionSchema),
   unresolved_zones: z.number(),
   drift_signal: z.string(),
