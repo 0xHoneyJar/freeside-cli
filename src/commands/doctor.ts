@@ -2,6 +2,7 @@ import { Cli, z } from 'incur'
 import { ZONES, findZone } from '../zones/manifest.ts'
 import { WORLDS } from '../worlds/registry.ts'
 import { ctaSchema } from '../lib/cta.ts'
+import { probeZones, type ProbeMode } from '../probe/index.ts'
 
 /**
  * `freeside doctor` — read-side probe across the whole ecosystem.
@@ -134,6 +135,10 @@ doctor.command('check', {
       .array(z.enum(['ok', 'warn', 'gap', 'error']))
       .optional()
       .describe('Filter by severity'),
+    probe: z
+      .enum(['live', 'mock', 'off'])
+      .default('off')
+      .describe('Run live/mock probes against zones. Default off (manifest-only fast path).'),
   }),
   output: z.object({
     summary: z.object({
@@ -146,17 +151,40 @@ doctor.command('check', {
         scope: z.string(),
         ref: z.string(),
         message: z.string(),
+        probe: z.string().optional(),
       }),
     ),
+    probe_mode: z.string(),
     cta: ctaSchema,
   }),
   examples: [
-    { description: 'Full diagnostic' },
+    { description: 'Full diagnostic (manifest-only)' },
     { options: { zone: 'quests' }, description: 'Just the quests zone' },
     { options: { levels: ['gap', 'error'] }, description: 'Only real problems' },
+    { options: { probe: 'live' }, description: 'With live probes (github/npm/http · slower)' },
   ],
-  run(c) {
-    let findings = diagnose(c.options.zone)
+  async run(c) {
+    let findings: Array<Finding & { probe?: string }> = diagnose(c.options.zone)
+
+    // S3.T4: run probes when --probe live|mock
+    const probeMode = c.options.probe as 'live' | 'mock' | 'off'
+    if (probeMode !== 'off') {
+      const zonesToProbe = c.options.zone
+        ? ZONES.filter((z) => z.id === c.options.zone)
+        : ZONES
+      const probeFindings = await probeZones(zonesToProbe, probeMode as ProbeMode)
+      // Cast probe findings to the doctor Finding shape · widen scope union
+      for (const pf of probeFindings) {
+        findings.push({
+          level: pf.level,
+          scope: 'cross-cut',
+          ref: pf.ref,
+          message: pf.message,
+          probe: pf.probe,
+        })
+      }
+    }
+
     if (c.options.levels?.length) {
       findings = findings.filter((f) => c.options.levels!.includes(f.level))
     }
@@ -189,6 +217,7 @@ doctor.command('check', {
       {
         summary: { total: findings.length, by_level },
         findings,
+        probe_mode: probeMode,
         cta,
       },
       { cta },

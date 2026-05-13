@@ -1,19 +1,24 @@
 /**
- * Worlds registry — stub for v0.1.
+ * Worlds registry.
  *
- * In v1.0 this reads from `freeside-worlds` package (the registry zone's
- * live adapter). For v0.1 it's an in-repo declaration mirroring what
- * the registry would expose, so the CLI surface is testable today
- * without waiting on the freeside-worlds zone-contract to crystallize.
+ * S3.T2 (Substrate Liberation): canonical data ships at `config/worlds.yaml`.
+ * This module defines the Zod worldSchema, loads the yaml at startup, and
+ * exports the validated array.
+ *
+ * In v1.0 the registry zone (freeside-worlds) becomes the live adapter
+ * for this data. For v0.2 it's local yaml · same shape as v1.0 will use.
  *
  * Each world declares which zones it claims to honor. `freeside doctor`
  * cross-references this with the zones manifest to surface drift.
  *
  * Canonical schema lives here; commands import worldSchema for output:
- * declarations. This is the single source of truth (per bridgebuilder PR #11
- * MEDIUM · worldDetailSchema duplication eliminated).
+ * declarations.
  */
 import { z } from 'incur'
+import { readFileSync, existsSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+import { parse as parseYaml } from 'yaml'
 
 export const worldSchema = z.object({
   id: z.string(),
@@ -30,54 +35,40 @@ export const worldSchema = z.object({
 
 export type World = z.infer<typeof worldSchema>
 
-export const WORLDS: World[] = [
-  {
-    id: 'purupuru',
-    domain: 'purupuru.world',
-    zones_claimed: ['characters', 'mediums', 'storage', 'auth'],
-    substrate: { deploy: 'vercel', data: 'convex' },
-    status: 'live',
-    repo: 'world-purupuru',
-    notes: 'Ghibli-warm honey magic · sonar self-hosted at purupuru-sonar-ref',
-  },
-  {
-    id: 'sprawl',
-    domain: 'sprawl.world',
-    zones_claimed: ['characters', 'storage', 'auth', 'score'],
-    substrate: { deploy: 'vercel', data: 'convex' },
-    status: 'live',
-    repo: 'sprawl-world',
-    notes: 'CRT cyberpunk · rektdrop + dimensions',
-  },
-  {
-    id: 'mibera-dimensions',
-    domain: 'dimensions.0xhoneyjar.xyz',
-    zones_claimed: ['characters', 'storage', 'score', 'auth', 'sonar'],
-    substrate: { deploy: 'vercel', data: 'convex' },
-    status: 'live',
-    repo: 'mibera-dimensions',
-    notes: 'Sticker substrate · 33-canvas observer pipeline',
-  },
-  {
-    id: 'apdao',
-    domain: 'apiologydao.0xhoneyjar.xyz',
-    zones_claimed: ['auth', 'score', 'sonar'],
-    substrate: { deploy: 'vercel', data: 'railway-postgres' },
-    status: 'live',
-    repo: 'apdao-auction-house',
-    notes: 'Drizzle migration complete · Railway Postgres · multicall snapshot · sonar via freeside-sonar GraphQL',
-  },
-  {
-    id: 'cubquests',
-    domain: 'cubquests.com',
-    zones_claimed: ['quests', 'auth', 'storage', 'sonar'],
-    substrate: { deploy: 'vercel', data: 'supabase' },
-    status: 'live',
-    repo: 'world-sprawl/cubquests-dashboard',
-    notes:
-      'Source-of-truth for quests-zone extraction · reverse-extraction test pending (PRD lane B1) · indexer events via sonar',
-  },
-]
+const worldsFileSchema = z.object({
+  worlds: z.array(worldSchema),
+})
+
+function resolveConfigPath(filename: string): string {
+  const envOverride = process.env.LOA_FREESIDE_CONFIG_DIR
+  if (envOverride) {
+    const p = join(envOverride, filename)
+    if (existsSync(p)) return p
+  }
+  const here = dirname(fileURLToPath(import.meta.url))
+  const fromModule = join(here, '..', '..', 'config', filename)
+  if (existsSync(fromModule)) return fromModule
+  const fromCwd = join(process.cwd(), 'config', filename)
+  if (existsSync(fromCwd)) return fromCwd
+  throw new Error(
+    `[freeside-cli] config/${filename} not found. Searched: env LOA_FREESIDE_CONFIG_DIR, ${fromModule}, ${fromCwd}`,
+  )
+}
+
+function loadWorlds(): World[] {
+  const path = resolveConfigPath('worlds.yaml')
+  const raw = readFileSync(path, 'utf-8')
+  const parsed = parseYaml(raw)
+  const result = worldsFileSchema.safeParse(parsed)
+  if (!result.success) {
+    throw new Error(
+      `[freeside-cli] config/worlds.yaml failed Zod validation:\n${result.error.message}`,
+    )
+  }
+  return result.data.worlds
+}
+
+export const WORLDS: World[] = loadWorlds()
 
 export function findWorld(id: string): World | undefined {
   return WORLDS.find((w) => w.id === id)

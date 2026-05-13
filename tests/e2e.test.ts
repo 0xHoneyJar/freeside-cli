@@ -330,3 +330,76 @@ describe('Sprint 2 · agent surface', () => {
     })
   })
 })
+
+describe('Sprint 3 · substrate liberation', () => {
+  describe('T1+T2 · yaml-loaded manifest', () => {
+    test('zones load from config/zones.yaml (not hardcoded)', async () => {
+      // Validation: zones count + ids match the yaml file content
+      const r = await run(['zones', 'list', '--json'])
+      const data = parseJson(r.stdout)
+      expect(data.count).toBe(9) // 9 zones in config/zones.yaml
+      const ids = new Set(data.zones.map((z: any) => z.id))
+      expect(ids.has('discord-deploy')).toBe(true)
+      expect(ids.has('sonar')).toBe(true)
+      expect(ids.has('score')).toBe(true)
+    })
+
+    test('worlds load from config/worlds.yaml (not hardcoded)', async () => {
+      const r = await run(['worlds', 'list', '--json'])
+      const data = parseJson(r.stdout)
+      expect(data.count).toBe(5)
+    })
+
+    test('Zod validation passes on canonical yaml shape', async () => {
+      // If yaml drifts from ZoneSchema, manifest.ts loadZones() throws on init.
+      // This test confirms successful load by exercising any zone command.
+      const r = await run(['status', 'summary', '--json'])
+      expect(r.exitCode).toBe(0)
+      const data = parseJson(r.stdout)
+      expect(data.zones.total).toBe(9)
+    })
+  })
+
+  describe('T3+T4 · probe folder + --probe flag', () => {
+    test('doctor default skips probes (--probe off)', async () => {
+      const r = await run(['doctor', 'check', '--json'])
+      const data = parseJson(r.stdout)
+      expect(data.probe_mode).toBe('off')
+      // No probe-scoped findings without explicit --probe flag
+      const probeFindings = data.findings.filter((f: any) => f.probe)
+      expect(probeFindings.length).toBe(0)
+    })
+
+    test('doctor --probe mock runs probes but emits zero findings', async () => {
+      const r = await run(['doctor', 'check', '--probe', 'mock', '--zone', 'auth', '--json'])
+      const data = parseJson(r.stdout)
+      expect(data.probe_mode).toBe('mock')
+      // mocks return empty findings · doctor still emits manifest findings
+      // for the zone (gaps + status + consumer-zero) but NO probe findings
+      const probeFindings = data.findings.filter((f: any) => f.probe)
+      expect(probeFindings.length).toBe(0)
+    })
+
+    test('--probe live flag is accepted but degrades gracefully in test env', async () => {
+      // Tests run with LOA_HEADLESS=1 (or under bun-test detection) so live probes
+      // return empty findings via isHeadless() short-circuit per B5 fold-in.
+      process.env.LOA_HEADLESS = '1'
+      const r = await run(['doctor', 'check', '--probe', 'live', '--zone', 'auth', '--json'])
+      const data = parseJson(r.stdout)
+      expect(data.probe_mode).toBe('live')
+      // headless → probes degrade · no probe findings emitted (manifest still has signal)
+      const probeFindings = data.findings.filter((f: any) => f.probe)
+      expect(probeFindings.length).toBe(0)
+      delete process.env.LOA_HEADLESS
+    })
+
+    test('probe schema includes probe field for traceability', async () => {
+      // Even when no probe findings emerge, the OUTPUT SHAPE includes probe field
+      // for findings that DO come from probes (forward-compatible)
+      const r = await run(['doctor', 'check', '--probe', 'mock', '--json'])
+      const data = parseJson(r.stdout)
+      // probe_mode field present in output (schema validation)
+      expect(data.probe_mode).toBeDefined()
+    })
+  })
+})

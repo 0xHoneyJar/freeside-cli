@@ -7,314 +7,109 @@
  * Substrate (vercel/railway/aws/etc) lives in the live adapter, not the
  * zone itself. Sovereign infra is an option, not a requirement.
  *
+ * S3.T1 · S3.T2 (Substrate Liberation): the canonical data ships at
+ * `config/zones.yaml` (operator-editable · no rebuild required). This
+ * module defines the Zod ZoneSchema, loads the yaml at startup, and
+ * exports the validated array. Schema drift between yaml and code
+ * fails fast with a clear Zod error.
+ *
+ * Operator-override path: `~/.freeside/zones.yaml` (future · v0.3+)
+ *
  * Doctrine: [[freeside-modules-as-installables]] +
  * [[cli-as-substrate-construct-as-lens]] + honeycomb/effect-substrate.
  */
+import { z } from 'incur'
+import { readFileSync, existsSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+import { parse as parseYaml } from 'yaml'
 
-export type ZoneStatus = 'active' | 'draft' | 'aspirational' | 'extracted'
+export const zoneStatusSchema = z.enum(['active', 'draft', 'aspirational', 'extracted'])
+export type ZoneStatus = z.infer<typeof zoneStatusSchema>
 
-export type Substrate =
-  | 'vercel'
-  | 'railway'
-  | 'aws'
-  | 'cloudflare'
-  | 'discord-api'
-  | 'self-hosted'
-  | 'tbd'
+export const substrateSchema = z.enum([
+  'vercel',
+  'railway',
+  'aws',
+  'cloudflare',
+  'discord-api',
+  'self-hosted',
+  'tbd',
+])
+export type Substrate = z.infer<typeof substrateSchema>
 
-export interface LiveAdapter {
-  name: string
-  substrate: Substrate
-  package?: string
-  notes?: string
-}
+export const liveAdapterSchema = z.object({
+  name: z.string(),
+  substrate: substrateSchema,
+  package: z.string().optional(),
+  notes: z.string().optional(),
+})
+export type LiveAdapter = z.infer<typeof liveAdapterSchema>
 
-export interface Zone {
-  /** kebab-case identifier; how teams reference the zone */
-  id: string
-  /** one-line description of what this zone contracts on */
-  description: string
-  /** load-bearing port interfaces (hexagonal seams teams honor) */
-  ports: string[]
-  /** schemas teams write against (typically TS/Zod or Effect) */
-  schemas: string[]
-  /** repo or workspace where this zone's port + schema lives */
-  home: string
-  /** known live adapter implementations + their substrates */
-  adapters: LiveAdapter[]
-  /** lifecycle stage */
-  status: ZoneStatus
-  /** known consumers — worlds that claim to honor this zone */
-  consumers: string[]
-  /** tiering signal — does Freeside offer a managed tier for this zone? */
-  tiering?: {
-    free: string
-    managed?: string
-  }
-  /** open gaps surfaced by this zone's current state */
-  gaps?: string[]
-}
+export const zoneSchema = z.object({
+  id: z.string(),
+  description: z.string(),
+  ports: z.array(z.string()),
+  schemas: z.array(z.string()),
+  home: z.string(),
+  adapters: z.array(liveAdapterSchema),
+  status: zoneStatusSchema,
+  consumers: z.array(z.string()),
+  tiering: z
+    .object({
+      free: z.string(),
+      managed: z.string().optional(),
+    })
+    .optional(),
+  gaps: z.array(z.string()).optional(),
+})
+export type Zone = z.infer<typeof zoneSchema>
+
+const zonesFileSchema = z.object({
+  zones: z.array(zoneSchema),
+})
 
 /**
- * The canonical zones list — v0.1.
+ * Resolve config/zones.yaml relative to the package root.
+ * Works under:
+ *   - `bun run src/bin/freeside.ts` (dev · cwd-relative)
+ *   - `node dist/bin/freeside.js` (post-build · resolves from package install)
  *
- * Operator-named priority (2026-05-13): discord-deploy + quests + auth
- * surface first. score named as tiering exemplar. storage/worlds/mediums/
- * characters included for navigation completeness.
+ * Resolution order: env override → package root (via import.meta.url) → cwd.
  */
-export const ZONES: Zone[] = [
-  {
-    id: 'discord-deploy',
-    description:
-      'Discord server provisioning + role + verification deployment. Was core to Freeside originally; now extracted.',
-    ports: ['IDiscordDeployer', 'IRoleSync', 'IVerificationFlow'],
-    schemas: ['discord-server.yaml', 'RoleSpec', 'VerificationSpec'],
-    home: 'freeside-discord-deploy (NEW — not yet created)',
-    adapters: [
-      {
-        name: 'discord-api-live',
-        substrate: 'discord-api',
-        notes:
-          'Wraps @discordjs/rest. Existing artifact: loa-freeside/packages/cli (gaib) has prior patterns to mine.',
-      },
-    ],
-    status: 'aspirational',
-    consumers: [],
-    tiering: {
-      free: 'team brings own Discord bot token',
-      managed: 'Freeside-hosted bot · multi-tenant token isolation',
-    },
-    gaps: [
-      'no port file extant — needs extraction from gaib',
-      'no schema published — discord-server.yaml lives only inside gaib',
-      'no live adapter package yet',
-      'verification flow shape unclear (role grant on wallet-sign?)',
-    ],
-  },
-  {
-    id: 'quests',
-    description:
-      'Quest definition, publishing, completion tracking, badge issuance.',
-    ports: ['IQuestEngine', 'IQuestPublisher', 'IQuestIndexer'],
-    schemas: ['Quest', 'QuestPublishInput', 'QuestCompletion', 'Badge'],
-    home: 'freeside-quests',
-    adapters: [
-      {
-        name: 'supabase-live',
-        substrate: 'railway',
-        notes:
-          'Existing adapter pattern inside cubquests-dashboard · candidate for extraction to @0xhoneyjar/quests-adapters/supabase',
-      },
-    ],
-    status: 'extracted',
-    consumers: ['cubquests-dashboard (unverified · reverse-extraction test pending PRD lane B1)'],
-    tiering: {
-      free: 'team brings own DB + Supabase project',
-      managed: 'Freeside-hosted quest pipeline (post-tiering)',
-    },
-    gaps: [
-      'zero consumers yet · reverse-extraction test (PRD lane B1) is the falsification gate',
-      'no Vercel/Railway adapter published — only inline cubquests pattern',
-      'IQuestIndexer port shape unclear — subsquid integration in EXTRACTION-MAP but unbuilt',
-    ],
-  },
-  {
-    id: 'auth',
-    description:
-      'Identity, sessions, tenants, wallet-linking. Every other zone depends on this.',
-    ports: ['IAuthProvider', 'ISessionStore', 'ITenantBoundary'],
-    schemas: ['Identity', 'Session', 'Tenant', 'WalletLink'],
-    home: 'freeside-auth',
-    adapters: [
-      {
-        name: 'jwt-live',
-        substrate: 'railway',
-        notes:
-          'Engine package landed 2026-05-06 sprint-1 in 6-package shape (protocol/ports/adapters/engine/mcp-tools/ui).',
-      },
-      {
-        name: 'keychain-cli-live',
-        substrate: 'self-hosted',
-        notes:
-          'CLI uses OS keychain (macOS Keychain / linux secret-service / Windows credential manager) for token storage. NEW adapter for v0.1.',
-      },
-    ],
-    status: 'active',
-    consumers: ['(no cross-@0xhoneyjar consumer yet — freeside-cli is the first)'],
-    tiering: {
-      free: 'team brings own JWT signing key',
-      managed: 'Freeside-issued JWKS · multi-tenant signing keys at loa-freeside/apps/gateway',
-    },
-    gaps: [
-      'no cross-module consumer yet — composition-thesis unproven',
-      'wallet-link port shape may diverge from existing apdao-auction-house pattern · needs reconciliation',
-      'tenant boundary semantics under-specified for multi-world deployments',
-    ],
-  },
-  {
-    id: 'score',
-    description:
-      'Behavior scoring substrate. Sealed schemas + ports + adapters for THJ scoring. Operator-named tiering exemplar 2026-05-13.',
-    ports: ['IScoreServiceClient', 'RecentActivity'],
-    schemas: ['ActivityEvent', 'ActivitySummary', 'RankChange', 'WebhookPayload'],
-    home: 'freeside-score',
-    adapters: [
-      {
-        name: 'score-service-client',
-        substrate: 'railway',
-        package: '@0xhoneyjar/freeside-score/adapters',
-        notes:
-          'Typed HTTP/NATS client · port + protocol scaffold landed 2026-04-28 · schema extraction from loa-freeside pending (coordination with Jani).',
-      },
-      {
-        name: 'score-api-runtime',
-        substrate: 'railway',
-        notes:
-          'Hono API runtime impl lives in 0xHoneyJar/score-api (separate repo) · provides the IScoreServiceClient endpoint. score-mibera is a deployed instance per-collection.',
-      },
-      {
-        name: 'beacon-mcp-tools',
-        substrate: 'railway',
-        package: '@0xhoneyjar/freeside-score/mcp-tools',
-        notes: 'MCP tool specs for agent-callable score queries (consumed by ruggy).',
-      },
-    ],
-    status: 'extracted',
-    consumers: ['mibera-dimensions', 'score-dashboard', 'ruggy', 'score-mibera (deployed instance)'],
-    tiering: {
-      free: 'team brings own score-api runtime · self-hosts on Railway · uses freeside-score schemas + client',
-      managed: 'Freeside-hosted score-api · per-collection pricing · per-event-volume billing',
-    },
-    gaps: [
-      'schemas not yet extracted from loa-freeside · EXTRACTION-MAP.md + INTEGRATION-PATH.md exist in repo · awaits coordination with Jani',
-      'IScoreServiceClient port file scaffolded but bodies still source from loa-freeside/packages/{core,adapters,shared}/',
-      'tiering boundary undefined — what counts as "your" score-api (BYO Railway deploy) vs "Freeside" score (managed pipeline)',
-      'no consumer yet imports from @0xhoneyjar/freeside-score · all still touch loa-freeside directly',
-    ],
-  },
-  {
-    id: 'storage',
-    description: 'Asset storage + variant generation + CDN routing.',
-    ports: ['IAssetStorage', 'IVariantPipeline', 'IAssetResolver'],
-    schemas: ['AssetRef', 'Variant', 'AssetSource'],
-    home: 'freeside-storage',
-    adapters: [
-      {
-        name: 'r2-live',
-        substrate: 'cloudflare',
-        notes: 'Cloudflare R2 mirror · used by freeside-characters PFP path.',
-      },
-      {
-        name: 'mirroring-storage-live',
-        substrate: 'cloudflare',
-        notes: 'Shadow-mirror existing chains · skill exists in construct-freeside.',
-      },
-    ],
-    status: 'active',
-    consumers: ['freeside-characters', 'mibera-dimensions (via sticker substrate)'],
-    tiering: {
-      free: 'team brings own R2/S3 bucket',
-      managed: 'Freeside-hosted asset CDN · per-GB billing',
-    },
-    gaps: [
-      'variant pipeline shape not yet ported · transforms live inline in characters',
-      'no fallback policy schema — divergence between text/PFP/abbrev/generic surfaces is unspecified',
-    ],
-  },
-  {
-    id: 'sonar',
-    description:
-      'Onchain event indexer · single source of truth for CubQuests, Score API, ApiologyDAO governance, Mibera substrate. 6 chains via HyperIndex V3.',
-    ports: ['ISonarGraphQL', 'ISonarEntityRegistry'],
-    schemas: ['EntityReference', 'HandlerRegistry', 'TrackedHolder', 'TrackedErc721'],
-    home: 'freeside-sonar',
-    adapters: [
-      {
-        name: 'hyperindex-v3-live',
-        substrate: 'self-hosted',
-        notes:
-          'Hosted at indexer.hyperindex.xyz/b5da47c · authoritative prod · parallel mirror at 914708e. Envio HyperSync. Berachain primary + 5 others.',
-      },
-    ],
-    status: 'active',
-    consumers: ['apdao-auction-house', 'score-mibera', 'mibera-codex', 'mibera-dimensions', 'cubquests-dashboard'],
-    tiering: {
-      free: 'team brings own HyperIndex deployment · self-hosts',
-      managed: 'Freeside-hosted indexer · per-chain pricing · multi-tenant GraphQL endpoint',
-    },
-    gaps: [
-      'no Sonar zone-contract package extant · consumers query GraphQL directly with hand-typed responses',
-      'no ISonarGraphQL port file — every consumer rolls own client',
-      'Envio shutdown risk · self-host AWS PR #12 pending fire (KRANZ trigger armed)',
-      'CODEOWNERS rebind pending after thj-envio → freeside-sonar rename',
-    ],
-  },
-  {
-    id: 'worlds',
-    description:
-      'The world registry. Lists worlds, their claimed zones, their substrates, their deployments.',
-    ports: ['IWorldRegistry', 'IWorldManifest'],
-    schemas: ['World', 'WorldManifest', 'ZoneClaim'],
-    home: 'freeside-worlds',
-    adapters: [
-      {
-        name: 'in-repo-yaml-live',
-        substrate: 'self-hosted',
-        notes:
-          'Worlds declared via YAML in-repo · 13 days steady since freeside-world → freeside-worlds rename (2026-04-29).',
-      },
-    ],
-    status: 'draft',
-    consumers: ['(none yet · this CLI is the first consumer)'],
-    gaps: [
-      'no WorldManifest schema published',
-      'no ZoneClaim shape — how a world declares which zones it honors is unspecified',
-      'no validation surface — `freeside worlds validate <world>` does not exist yet',
-    ],
-  },
-  {
-    id: 'characters',
-    description: 'Character voice + persona + chathead instance routing.',
-    ports: ['ICharacterRouter', 'IPersonaCompositor', 'IMediumBinding'],
-    schemas: ['CharacterSpec', 'PersonaProfile', 'ChatHead'],
-    home: 'freeside-characters',
-    adapters: [
-      {
-        name: 'inline-composer-live',
-        substrate: 'vercel',
-        notes:
-          'V0.7-A.4 cap-mistune in prod · composeWithImage + grail-ref-guard + persona anti-hallucination.',
-      },
-    ],
-    status: 'active',
-    consumers: ['(no cross-module consumer — characters runs as its own service)'],
-    gaps: [
-      'no formal port — character composition is service-shape, not port-shape',
-      'medium-binding seam exists (cmp-boundary cycle) but not exposed as zone contract',
-    ],
-  },
-  {
-    id: 'mediums',
-    description: 'Medium registry + capability routing (chathead, web, discord, etc).',
-    ports: ['IMediumRegistry', 'IMediumCapability', 'IDeliveryAdapter'],
-    schemas: ['MediumSpec', 'Capability', 'DeliveryEnvelope'],
-    home: 'freeside-mediums',
-    adapters: [
-      {
-        name: 'medium-registry-live',
-        substrate: 'self-hosted',
-        notes:
-          '@0xhoneyjar/medium-registry@0.2.0 + cli-renderer@0.1.0 · cmp-boundary cycle shipped 2026-05-04.',
-      },
-    ],
-    status: 'active',
-    consumers: ['freeside-characters', 'freeside-quests (planned)'],
-    gaps: [
-      'discord-deploy zone overlaps with mediums.discord-capability — boundary unclear',
-      'CLAUDE.md missing in freeside-mediums (gecko bazaar-scan finding · pattern drift)',
-    ],
-  },
-]
+function resolveConfigPath(filename: string): string {
+  const envOverride = process.env.LOA_FREESIDE_CONFIG_DIR
+  if (envOverride) {
+    const p = join(envOverride, filename)
+    if (existsSync(p)) return p
+  }
+  const here = dirname(fileURLToPath(import.meta.url))
+  // src/zones/manifest.ts → ../../config/<file>
+  // dist/bin/freeside.js  → ../../config/<file>
+  const fromModule = join(here, '..', '..', 'config', filename)
+  if (existsSync(fromModule)) return fromModule
+  // Fallback: cwd-relative (for tests + ad-hoc runs)
+  const fromCwd = join(process.cwd(), 'config', filename)
+  if (existsSync(fromCwd)) return fromCwd
+  throw new Error(
+    `[freeside-cli] config/${filename} not found. Searched: env LOA_FREESIDE_CONFIG_DIR, ${fromModule}, ${fromCwd}`,
+  )
+}
+
+function loadZones(): Zone[] {
+  const path = resolveConfigPath('zones.yaml')
+  const raw = readFileSync(path, 'utf-8')
+  const parsed = parseYaml(raw)
+  const result = zonesFileSchema.safeParse(parsed)
+  if (!result.success) {
+    throw new Error(
+      `[freeside-cli] config/zones.yaml failed Zod validation:\n${result.error.message}`,
+    )
+  }
+  return result.data.zones
+}
+
+export const ZONES: Zone[] = loadZones()
 
 export function findZone(id: string): Zone | undefined {
   return ZONES.find((z) => z.id === id)
