@@ -1,4 +1,5 @@
 import { Cli, z } from 'incur'
+import { VERSION } from '../version.ts'
 import { ZONES, zonesByStatus } from '../zones/manifest.ts'
 import { WORLDS } from '../worlds/registry.ts'
 
@@ -32,7 +33,7 @@ status.command('summary', {
   run(c) {
     return c.ok(
       {
-        cli_version: '0.1.0-alpha.0',
+        cli_version: VERSION,
         zones: {
           total: ZONES.length,
           active: zonesByStatus('active').length,

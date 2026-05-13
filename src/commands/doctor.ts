@@ -42,7 +42,7 @@ function diagnose(zoneFilter?: string): Finding[] {
         message: `Draft zone — schema published but consumer story incomplete`,
       })
     }
-    if (z.consumers.length === 0 || z.consumers[0].startsWith('(')) {
+    if (z.consumers.length === 0 || (z.consumers[0]?.startsWith('(') ?? false)) {
       findings.push({
         level: 'warn',
         scope: 'zone',
