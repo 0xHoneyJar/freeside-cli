@@ -2,6 +2,7 @@ import { Cli, z } from 'incur'
 import { VERSION } from '../version.ts'
 import { ZONES, zonesByStatus } from '../zones/manifest.ts'
 import { WORLDS } from '../worlds/registry.ts'
+import { ctaSchema } from '../lib/cta.ts'
 
 export const status = Cli.create('status', {
   description: 'Snapshot of freeside-cli + ecosystem state.',
@@ -29,8 +30,17 @@ status.command('summary', {
       composition_thesis: z.string(),
       first_proof_point_pending: z.string(),
     }),
+    cta: ctaSchema,
   }),
   run(c) {
+    const cta = {
+      description: 'Next:',
+      commands: [
+        { command: 'zones list', description: 'See all zone contracts' },
+        { command: 'doctor check', description: 'Surface gaps' },
+        { command: 'worlds list', description: 'See claimants' },
+      ],
+    }
     return c.ok(
       {
         cli_version: VERSION,
@@ -53,17 +63,9 @@ status.command('summary', {
           first_proof_point_pending:
             'freeside-cli itself is the candidate · first cross-@0xhoneyjar/* import lands here',
         },
+        cta,
       },
-      {
-        cta: {
-          description: 'Next:',
-          commands: [
-            { command: 'zones list', description: 'See all zone contracts' },
-            { command: 'doctor check', description: 'Surface gaps' },
-            { command: 'worlds list', description: 'See claimants' },
-          ],
-        },
-      },
+      { cta },
     )
   },
 })

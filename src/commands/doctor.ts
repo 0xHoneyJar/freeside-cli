@@ -1,13 +1,20 @@
 import { Cli, z } from 'incur'
 import { ZONES, findZone } from '../zones/manifest.ts'
 import { WORLDS } from '../worlds/registry.ts'
+import { ctaSchema } from '../lib/cta.ts'
 
 /**
  * `freeside doctor` — read-side probe across the whole ecosystem.
  *
- * v0.1 surfaces STRUCTURAL drift (what's declared vs what's known to exist).
- * v0.2+ extends with LIVE probes (HTTP health checks, DB connectivity, etc.)
- * via the live adapters once they're wired.
+ * v0.1 surfaced STRUCTURAL drift by emitting findings from BOTH zone.status
+ * AND zone.gaps[] — redundant (same condition expressed twice).
+ *
+ * v0.2 single-sources gap detection (T3 · F-LOW-4):
+ *   - When zone.gaps[] is non-empty → emit ONLY the gaps (gaps are canonical)
+ *   - When zone.gaps[] is empty → emit status-derived fallback finding
+ *
+ * Consumers and cross-cut checks operate on different scope (world ↔ zone
+ * resolution; cross-@0xhoneyjar/* import existence) so they emit independently.
  *
  * The diagnosis is the gap. Every red line is a real piece of work surfaced.
  */
@@ -26,32 +33,53 @@ function diagnose(zoneFilter?: string): Finding[] {
 
   for (const z of zonesToCheck) {
     if (!z) continue
+
+    // T3 single-source applies to MESSAGE-LEVEL redundancy (zone.gaps[] entries
+    // are item-level details; the original status-finding "Aspirational zone —
+    // port/schema/adapter not yet extant" overlapped with gap[0] "no port file
+    // extant"). Three independent signals stay independent:
+    //   1. item-level: gaps[] entries (always emit)
+    //   2. zone-level status warning (always emit when non-active/extracted ·
+    //      summarizes that the zone-as-a-whole isn't ready)
+    //   3. consumer-zero check (always emit · orthogonal · per bridgebuilder
+    //      HIGH finding on PR #11)
+    // The "single source" intent is: gap MESSAGES come from gaps[]; status
+    // MESSAGES come from status; consumer MESSAGES come from consumer-empty
+    // detection. No emission writes another's content.
+
+    // (1) item-level gaps
+    for (const gap of z.gaps ?? []) {
+      findings.push({ level: 'gap', scope: 'zone', ref: z.id, message: gap })
+    }
+
+    // (2) zone-level status warning (orthogonal to gaps · summarizes zone state)
     if (z.status === 'aspirational') {
       findings.push({
         level: 'gap',
         scope: 'zone',
         ref: z.id,
-        message: `Aspirational zone — port/schema/adapter not yet extant. Home: ${z.home}`,
+        message: `Status: aspirational — zone not yet materialized. Home: ${z.home}`,
       })
-    }
-    if (z.status === 'draft') {
+    } else if (z.status === 'draft') {
       findings.push({
         level: 'warn',
         scope: 'zone',
         ref: z.id,
-        message: `Draft zone — schema published but consumer story incomplete`,
+        message: `Status: draft — schema published but consumer story incomplete`,
       })
     }
-    if (z.consumers.length === 0 || (z.consumers[0]?.startsWith('(') ?? false)) {
+
+    // (3) consumer-zero check (orthogonal · per bridgebuilder PR #11 HIGH finding)
+    const verifiedConsumers = z.consumers.filter(
+      (c) => c && !c.startsWith('(') && !c.includes('(deployed instance)'),
+    )
+    if (verifiedConsumers.length === 0) {
       findings.push({
         level: 'warn',
         scope: 'zone',
         ref: z.id,
-        message: `Zero verified consumers — composition thesis unproven`,
+        message: `Zero verified consumers — composition thesis unproven for this zone`,
       })
-    }
-    for (const gap of z.gaps ?? []) {
-      findings.push({ level: 'gap', scope: 'zone', ref: z.id, message: gap })
     }
   }
 
@@ -120,6 +148,7 @@ doctor.command('check', {
         message: z.string(),
       }),
     ),
+    cta: ctaSchema,
   }),
   examples: [
     { description: 'Full diagnostic' },
@@ -135,24 +164,34 @@ doctor.command('check', {
     for (const f of findings) {
       by_level[f.level] = (by_level[f.level] ?? 0) + 1
     }
+    // F-LOW · dynamic "most-gap zone" rather than hardcoded discord-deploy
+    const gapsByZone: Record<string, number> = {}
+    for (const f of findings) {
+      if (f.scope === 'zone') {
+        gapsByZone[f.ref] = (gapsByZone[f.ref] ?? 0) + 1
+      }
+    }
+    const mostGapZone = Object.entries(gapsByZone).sort((a, b) => b[1] - a[1])[0]?.[0]
+    const cta = {
+      description: 'Next:',
+      commands: mostGapZone
+        ? [
+            {
+              command: 'zones show',
+              args: { id: mostGapZone },
+              description: `Inspect the most-gap zone (${gapsByZone[mostGapZone]} findings)`,
+            },
+            { command: 'zones list', description: 'Back to overview' },
+          ]
+        : [{ command: 'zones list', description: 'Back to overview' }],
+    }
     return c.ok(
       {
         summary: { total: findings.length, by_level },
         findings,
+        cta,
       },
-      {
-        cta: {
-          description: 'Next:',
-          commands: [
-            {
-              command: 'zones show',
-              args: { id: 'discord-deploy' },
-              description: 'Inspect the most-gap zone',
-            },
-            { command: 'zones list', description: 'Back to overview' },
-          ],
-        },
-      },
+      { cta },
     )
   },
 })

@@ -224,3 +224,109 @@ describe('integrity: worlds claim only existing zones', () => {
     }
   })
 })
+
+describe('Sprint 2 · agent surface', () => {
+  describe('T1+T2 · CTAs survive in typed output (MCP path)', () => {
+    test('zones list output has typed cta in data', async () => {
+      const r = await run(['zones', 'list', '--json'])
+      const data = parseJson(r.stdout)
+      expect(data.cta).toBeDefined()
+      expect(typeof data.cta.description).toBe('string')
+      expect(Array.isArray(data.cta.commands)).toBe(true)
+      expect(data.cta.commands.length).toBeGreaterThan(0)
+      expect(data.cta.commands[0].command).toBeDefined()
+    })
+
+    test('zones show output has typed Zone shape + cta', async () => {
+      const r = await run(['zones', 'show', 'auth', '--json'])
+      const data = parseJson(r.stdout)
+      // typed Zone shape (T1)
+      expect(data.id).toBe('auth')
+      expect(Array.isArray(data.ports)).toBe(true)
+      expect(Array.isArray(data.adapters)).toBe(true)
+      expect(Array.isArray(data.consumers)).toBe(true)
+      // typed cta (T2)
+      expect(data.cta).toBeDefined()
+      expect(Array.isArray(data.cta.commands)).toBe(true)
+    })
+
+    test('worlds list output has typed cta in data', async () => {
+      const r = await run(['worlds', 'list', '--json'])
+      const data = parseJson(r.stdout)
+      expect(data.cta).toBeDefined()
+      expect(data.cta.commands.length).toBeGreaterThan(0)
+    })
+
+    test('worlds show output has typed shape + cta', async () => {
+      const r = await run(['worlds', 'show', 'purupuru', '--json'])
+      const data = parseJson(r.stdout)
+      // typed World+resolution shape (T1)
+      expect(data.world).toBeDefined()
+      expect(data.world.id).toBe('purupuru')
+      expect(Array.isArray(data.zone_resolution)).toBe(true)
+      expect(typeof data.unresolved_zones).toBe('number')
+      expect(typeof data.drift_signal).toBe('string')
+      // typed cta (T2)
+      expect(data.cta).toBeDefined()
+      expect(Array.isArray(data.cta.commands)).toBe(true)
+    })
+
+    test('doctor check output has typed cta', async () => {
+      const r = await run(['doctor', 'check', '--json'])
+      const data = parseJson(r.stdout)
+      expect(data.cta).toBeDefined()
+      expect(data.cta.description).toBeDefined()
+    })
+
+    test('status summary output has typed cta', async () => {
+      const r = await run(['status', 'summary', '--json'])
+      const data = parseJson(r.stdout)
+      expect(data.cta).toBeDefined()
+      expect(data.cta.commands.length).toBeGreaterThanOrEqual(3)
+    })
+  })
+
+  describe('T3 · three independent signals (post bridgebuilder PR #11 HIGH fix)', () => {
+    test('aspirational zone with gaps[] emits gap entries + status + consumer-zero', async () => {
+      // discord-deploy: status=aspirational · 4 gaps · 0 consumers.
+      // Per bridgebuilder PR #11 HIGH: three signals stay independent.
+      const r = await run(['doctor', 'check', '--zone', 'discord-deploy', '--json'])
+      const data = parseJson(r.stdout)
+      const messages = data.findings.map((f: any) => f.message)
+      // (1) item-level gaps[] entries
+      expect(messages.some((m: string) => m.includes('no port file extant'))).toBe(true)
+      expect(messages.some((m: string) => m.includes('verification flow shape unclear'))).toBe(true)
+      // (2) zone-level status signal (renamed · semantically distinct from gaps)
+      expect(messages.some((m: string) => m.startsWith('Status: aspirational'))).toBe(true)
+      // (3) consumer-zero signal (restored per HIGH finding)
+      expect(messages.some((m: string) => m.includes('Zero verified consumers'))).toBe(true)
+    })
+
+    test('draft-status warning fires alongside gaps (distinct semantics)', async () => {
+      // worlds zone is draft with gaps. Per bridgebuilder PR #11 MEDIUM:
+      // draft warning is a different semantic class from individual gaps.
+      const r = await run(['doctor', 'check', '--zone', 'worlds', '--json'])
+      const data = parseJson(r.stdout)
+      const messages = data.findings.map((f: any) => f.message)
+      expect(messages.some((m: string) => m.startsWith('Status: draft'))).toBe(true)
+    })
+
+    test('consumer-zero check fires for zones lacking verified consumers', async () => {
+      // discord-deploy + worlds both have effectively zero verified consumers.
+      const r = await run(['doctor', 'check', '--json'])
+      const data = parseJson(r.stdout)
+      const zerocons = data.findings.filter((f: any) =>
+        f.message.includes('Zero verified consumers'),
+      )
+      expect(zerocons.length).toBeGreaterThan(0)
+    })
+
+    test('active zones with verified consumers do NOT emit consumer-zero', async () => {
+      // characters has freeside-characters consumer. storage has freeside-characters + mibera-dimensions.
+      const r = await run(['doctor', 'check', '--zone', 'storage', '--json'])
+      const data = parseJson(r.stdout)
+      const messages = data.findings.map((f: any) => f.message)
+      expect(messages.some((m: string) => m.includes('Zero verified consumers'))).toBe(false)
+    })
+  })
+})
