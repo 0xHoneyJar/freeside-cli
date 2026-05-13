@@ -32,7 +32,7 @@ status.command('summary', {
   run(c) {
     return c.ok(
       {
-        cli_version: '0.1.0-alpha.0',
+        cli_version: '0.2.0-alpha.0',
         zones: {
           total: ZONES.length,
           active: zonesByStatus('active').length,
