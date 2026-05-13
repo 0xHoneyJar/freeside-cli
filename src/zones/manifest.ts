@@ -154,33 +154,42 @@ export const ZONES: Zone[] = [
   {
     id: 'score',
     description:
-      'Behavior scoring pipeline. The OG of Freeside service-tiering — operator-named exemplar 2026-05-13.',
-    ports: ['IScoreEngine', 'IScoreQuery', 'ISnapshotWriter'],
-    schemas: ['ScoreEvent', 'Snapshot', 'ScoreSchema'],
-    home: 'score-mibera (current production · publishes beacon.yaml)',
+      'Behavior scoring substrate. Sealed schemas + ports + adapters for THJ scoring. Operator-named tiering exemplar 2026-05-13.',
+    ports: ['IScoreServiceClient', 'RecentActivity'],
+    schemas: ['ActivityEvent', 'ActivitySummary', 'RankChange', 'WebhookPayload'],
+    home: 'freeside-score',
     adapters: [
       {
-        name: 'drizzle-postgres-live',
+        name: 'score-service-client',
         substrate: 'railway',
+        package: '@0xhoneyjar/freeside-score/adapters',
         notes:
-          'score-api@0.6.0 on Railway · drizzle-orm + pg + viem · trigger.dev for jobs.',
+          'Typed HTTP/NATS client · port + protocol scaffold landed 2026-04-28 · schema extraction from loa-freeside pending (coordination with Jani).',
       },
       {
-        name: 'beacon-mcp-live',
+        name: 'score-api-runtime',
         substrate: 'railway',
-        notes: 'Score MCP at mcp.0xhoneyjar.xyz · 9 tools via beacon.yaml.',
+        notes:
+          'Hono API runtime impl lives in 0xHoneyJar/score-api (separate repo) · provides the IScoreServiceClient endpoint. score-mibera is a deployed instance per-collection.',
+      },
+      {
+        name: 'beacon-mcp-tools',
+        substrate: 'railway',
+        package: '@0xhoneyjar/freeside-score/mcp-tools',
+        notes: 'MCP tool specs for agent-callable score queries (consumed by ruggy).',
       },
     ],
-    status: 'active',
-    consumers: ['mibera-dimensions', 'score-dashboard'],
+    status: 'extracted',
+    consumers: ['mibera-dimensions', 'score-dashboard', 'ruggy', 'score-mibera (deployed instance)'],
     tiering: {
-      free: 'self-host the score pipeline (drizzle + trigger.dev recipe)',
-      managed: 'Freeside-hosted scoring · per-collection pricing · tier-by-event-volume',
+      free: 'team brings own score-api runtime · self-hosts on Railway · uses freeside-score schemas + client',
+      managed: 'Freeside-hosted score-api · per-collection pricing · per-event-volume billing',
     },
     gaps: [
-      'beacon-schema split between freeside-mcp-gateway + score-mibera — single source of truth unclear',
-      'no IScoreEngine port file extant — implementations are direct service-shape, not port-shape',
-      'tiering boundary undefined — what counts as "your" score vs "Freeside" score',
+      'schemas not yet extracted from loa-freeside · EXTRACTION-MAP.md + INTEGRATION-PATH.md exist in repo · awaits coordination with Jani',
+      'IScoreServiceClient port file scaffolded but bodies still source from loa-freeside/packages/{core,adapters,shared}/',
+      'tiering boundary undefined — what counts as "your" score-api (BYO Railway deploy) vs "Freeside" score (managed pipeline)',
+      'no consumer yet imports from @0xhoneyjar/freeside-score · all still touch loa-freeside directly',
     ],
   },
   {
@@ -210,6 +219,34 @@ export const ZONES: Zone[] = [
     gaps: [
       'variant pipeline shape not yet ported · transforms live inline in characters',
       'no fallback policy schema — divergence between text/PFP/abbrev/generic surfaces is unspecified',
+    ],
+  },
+  {
+    id: 'sonar',
+    description:
+      'Onchain event indexer · single source of truth for CubQuests, Score API, ApiologyDAO governance, Mibera substrate. 6 chains via HyperIndex V3.',
+    ports: ['ISonarGraphQL', 'ISonarEntityRegistry'],
+    schemas: ['EntityReference', 'HandlerRegistry', 'TrackedHolder', 'TrackedErc721'],
+    home: 'freeside-sonar',
+    adapters: [
+      {
+        name: 'hyperindex-v3-live',
+        substrate: 'self-hosted',
+        notes:
+          'Hosted at indexer.hyperindex.xyz/b5da47c · authoritative prod · parallel mirror at 914708e. Envio HyperSync. Berachain primary + 5 others.',
+      },
+    ],
+    status: 'active',
+    consumers: ['apdao-auction-house', 'score-mibera', 'mibera-codex', 'mibera-dimensions', 'cubquests-dashboard'],
+    tiering: {
+      free: 'team brings own HyperIndex deployment · self-hosts',
+      managed: 'Freeside-hosted indexer · per-chain pricing · multi-tenant GraphQL endpoint',
+    },
+    gaps: [
+      'no Sonar zone-contract package extant · consumers query GraphQL directly with hand-typed responses',
+      'no ISonarGraphQL port file — every consumer rolls own client',
+      'Envio shutdown risk · self-host AWS PR #12 pending fire (KRANZ trigger armed)',
+      'CODEOWNERS rebind pending after thj-envio → freeside-sonar rename',
     ],
   },
   {

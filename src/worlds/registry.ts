@@ -47,7 +47,7 @@ export const WORLDS: World[] = [
   {
     id: 'mibera-dimensions',
     domain: 'dimensions.0xhoneyjar.xyz',
-    zones_claimed: ['characters', 'storage', 'score', 'auth'],
+    zones_claimed: ['characters', 'storage', 'score', 'auth', 'sonar'],
     substrate: { deploy: 'vercel', data: 'convex' },
     status: 'live',
     repo: 'mibera-dimensions',
@@ -56,21 +56,21 @@ export const WORLDS: World[] = [
   {
     id: 'apdao',
     domain: 'apiologydao.0xhoneyjar.xyz',
-    zones_claimed: ['auth', 'score'],
+    zones_claimed: ['auth', 'score', 'sonar'],
     substrate: { deploy: 'vercel', data: 'railway-postgres' },
     status: 'live',
     repo: 'apdao-auction-house',
-    notes: 'Drizzle migration complete · Railway Postgres · multicall snapshot',
+    notes: 'Drizzle migration complete · Railway Postgres · multicall snapshot · sonar via freeside-sonar GraphQL',
   },
   {
     id: 'cubquests',
     domain: 'cubquests.com',
-    zones_claimed: ['quests', 'auth', 'storage'],
+    zones_claimed: ['quests', 'auth', 'storage', 'sonar'],
     substrate: { deploy: 'vercel', data: 'supabase' },
     status: 'live',
     repo: 'world-sprawl/cubquests-dashboard',
     notes:
-      'Source-of-truth for quests-zone extraction · reverse-extraction test pending (PRD lane B1)',
+      'Source-of-truth for quests-zone extraction · reverse-extraction test pending (PRD lane B1) · indexer events via sonar',
   },
 ]
 

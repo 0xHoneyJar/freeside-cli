@@ -62,10 +62,10 @@ describe('freeside --help / --version / --llms', () => {
 })
 
 describe('zones list / show', () => {
-  test('zones list --json returns 8 zones', async () => {
+  test('zones list --json returns 9 zones', async () => {
     const r = await run(['zones', 'list', '--json'])
     const data = parseJson(r.stdout)
-    expect(data.count).toBe(8)
+    expect(data.count).toBe(9)
     const ids = data.zones.map((z: any) => z.id)
     expect(ids).toEqual([
       'discord-deploy',
@@ -73,10 +73,26 @@ describe('zones list / show', () => {
       'auth',
       'score',
       'storage',
+      'sonar',
       'worlds',
       'characters',
       'mediums',
     ])
+  })
+
+  test('score zone home is freeside-score (not score-mibera)', async () => {
+    const r = await run(['zones', 'show', 'score', '--json'])
+    const z = parseJson(r.stdout)
+    expect(z.home).toBe('freeside-score')
+    expect(z.ports).toContain('IScoreServiceClient')
+  })
+
+  test('every zone home is a freeside-* repo (subway doctrine)', async () => {
+    const r = await run(['zones', 'list', '--json'])
+    const zones = parseJson(r.stdout).zones
+    for (const z of zones) {
+      expect(z.home).toMatch(/^freeside-/)
+    }
   })
 
   test('zones list --status active --json returns active zones only', async () => {
@@ -174,7 +190,7 @@ describe('status summary', () => {
     const r = await run(['status', 'summary', '--json'])
     const data = parseJson(r.stdout)
     expect(data.cli_version).toMatch(/^\d+\.\d+\.\d+/)
-    expect(data.zones.total).toBe(8)
+    expect(data.zones.total).toBe(9)
     expect(data.worlds.total).toBe(5)
     expect(data.doctrine.composition_thesis).toBeTruthy()
   })
