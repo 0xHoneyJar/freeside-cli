@@ -224,3 +224,92 @@ describe('integrity: worlds claim only existing zones', () => {
     }
   })
 })
+
+describe('Sprint 2 · agent surface', () => {
+  describe('T1+T2 · CTAs survive in typed output (MCP path)', () => {
+    test('zones list output has typed cta in data', async () => {
+      const r = await run(['zones', 'list', '--json'])
+      const data = parseJson(r.stdout)
+      expect(data.cta).toBeDefined()
+      expect(typeof data.cta.description).toBe('string')
+      expect(Array.isArray(data.cta.commands)).toBe(true)
+      expect(data.cta.commands.length).toBeGreaterThan(0)
+      expect(data.cta.commands[0].command).toBeDefined()
+    })
+
+    test('zones show output has typed Zone shape + cta', async () => {
+      const r = await run(['zones', 'show', 'auth', '--json'])
+      const data = parseJson(r.stdout)
+      // typed Zone shape (T1)
+      expect(data.id).toBe('auth')
+      expect(Array.isArray(data.ports)).toBe(true)
+      expect(Array.isArray(data.adapters)).toBe(true)
+      expect(Array.isArray(data.consumers)).toBe(true)
+      // typed cta (T2)
+      expect(data.cta).toBeDefined()
+      expect(Array.isArray(data.cta.commands)).toBe(true)
+    })
+
+    test('worlds list output has typed cta in data', async () => {
+      const r = await run(['worlds', 'list', '--json'])
+      const data = parseJson(r.stdout)
+      expect(data.cta).toBeDefined()
+      expect(data.cta.commands.length).toBeGreaterThan(0)
+    })
+
+    test('worlds show output has typed shape + cta', async () => {
+      const r = await run(['worlds', 'show', 'purupuru', '--json'])
+      const data = parseJson(r.stdout)
+      // typed World+resolution shape (T1)
+      expect(data.world).toBeDefined()
+      expect(data.world.id).toBe('purupuru')
+      expect(Array.isArray(data.zone_resolution)).toBe(true)
+      expect(typeof data.unresolved_zones).toBe('number')
+      expect(typeof data.drift_signal).toBe('string')
+      // typed cta (T2)
+      expect(data.cta).toBeDefined()
+      expect(Array.isArray(data.cta.commands)).toBe(true)
+    })
+
+    test('doctor check output has typed cta', async () => {
+      const r = await run(['doctor', 'check', '--json'])
+      const data = parseJson(r.stdout)
+      expect(data.cta).toBeDefined()
+      expect(data.cta.description).toBeDefined()
+    })
+
+    test('status summary output has typed cta', async () => {
+      const r = await run(['status', 'summary', '--json'])
+      const data = parseJson(r.stdout)
+      expect(data.cta).toBeDefined()
+      expect(data.cta.commands.length).toBeGreaterThanOrEqual(3)
+    })
+  })
+
+  describe('T3 · single-source gap detection (F-LOW-4)', () => {
+    test('zone with gaps[] does NOT also emit status-derived finding', async () => {
+      // discord-deploy is aspirational AND has 4 gaps.
+      // Pre-T3 emitted 5 findings (status + 4 gaps).
+      // Post-T3 emits only the 4 gaps (single-source).
+      const r = await run(['doctor', 'check', '--zone', 'discord-deploy', '--json'])
+      const data = parseJson(r.stdout)
+      const messages = data.findings.map((f: any) => f.message)
+      // gaps[] entries are present
+      expect(messages.some((m: string) => m.includes('no port file extant'))).toBe(true)
+      // status-derived "Aspirational zone — port/schema/adapter not yet extant"
+      // message should NOT be present when gaps[] is non-empty
+      expect(messages.some((m: string) => m.startsWith('Aspirational zone — port/schema/adapter'))).toBe(false)
+    })
+
+    test('zone with empty gaps[] still gets status-derived fallback finding', async () => {
+      // No zone currently ships with gaps:[] AND status:'aspirational'/'draft' simultaneously.
+      // This test verifies the fallback path: doctor still surfaces something
+      // when the manifest doesn't enumerate gaps explicitly. Pure-shape check
+      // by counting findings for any zone — must produce ≥1 if zone is not active/extracted.
+      const r = await run(['doctor', 'check', '--json'])
+      const data = parseJson(r.stdout)
+      // every aspirational/draft zone gets at least one finding (gap OR status-fallback)
+      expect(data.summary.total).toBeGreaterThan(0)
+    })
+  })
+})

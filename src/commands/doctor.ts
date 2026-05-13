@@ -1,13 +1,20 @@
 import { Cli, z } from 'incur'
 import { ZONES, findZone } from '../zones/manifest.ts'
 import { WORLDS } from '../worlds/registry.ts'
+import { ctaSchema } from '../lib/cta.ts'
 
 /**
  * `freeside doctor` — read-side probe across the whole ecosystem.
  *
- * v0.1 surfaces STRUCTURAL drift (what's declared vs what's known to exist).
- * v0.2+ extends with LIVE probes (HTTP health checks, DB connectivity, etc.)
- * via the live adapters once they're wired.
+ * v0.1 surfaced STRUCTURAL drift by emitting findings from BOTH zone.status
+ * AND zone.gaps[] — redundant (same condition expressed twice).
+ *
+ * v0.2 single-sources gap detection (T3 · F-LOW-4):
+ *   - When zone.gaps[] is non-empty → emit ONLY the gaps (gaps are canonical)
+ *   - When zone.gaps[] is empty → emit status-derived fallback finding
+ *
+ * Consumers and cross-cut checks operate on different scope (world ↔ zone
+ * resolution; cross-@0xhoneyjar/* import existence) so they emit independently.
  *
  * The diagnosis is the gap. Every red line is a real piece of work surfaced.
  */
@@ -26,32 +33,28 @@ function diagnose(zoneFilter?: string): Finding[] {
 
   for (const z of zonesToCheck) {
     if (!z) continue
-    if (z.status === 'aspirational') {
+
+    // T3 single-source: gaps[] is canonical when present.
+    // status-derived finding fires only when gaps[] is empty (preserving
+    // signal that something is non-active without redundant duplication).
+    if (z.gaps && z.gaps.length > 0) {
+      for (const gap of z.gaps) {
+        findings.push({ level: 'gap', scope: 'zone', ref: z.id, message: gap })
+      }
+    } else if (z.status === 'aspirational') {
       findings.push({
         level: 'gap',
         scope: 'zone',
         ref: z.id,
         message: `Aspirational zone — port/schema/adapter not yet extant. Home: ${z.home}`,
       })
-    }
-    if (z.status === 'draft') {
+    } else if (z.status === 'draft') {
       findings.push({
         level: 'warn',
         scope: 'zone',
         ref: z.id,
         message: `Draft zone — schema published but consumer story incomplete`,
       })
-    }
-    if (z.consumers.length === 0 || (z.consumers[0]?.startsWith('(') ?? false)) {
-      findings.push({
-        level: 'warn',
-        scope: 'zone',
-        ref: z.id,
-        message: `Zero verified consumers — composition thesis unproven`,
-      })
-    }
-    for (const gap of z.gaps ?? []) {
-      findings.push({ level: 'gap', scope: 'zone', ref: z.id, message: gap })
     }
   }
 
@@ -120,6 +123,7 @@ doctor.command('check', {
         message: z.string(),
       }),
     ),
+    cta: ctaSchema,
   }),
   examples: [
     { description: 'Full diagnostic' },
@@ -135,24 +139,24 @@ doctor.command('check', {
     for (const f of findings) {
       by_level[f.level] = (by_level[f.level] ?? 0) + 1
     }
+    const cta = {
+      description: 'Next:',
+      commands: [
+        {
+          command: 'zones show',
+          args: { id: 'discord-deploy' },
+          description: 'Inspect the most-gap zone',
+        },
+        { command: 'zones list', description: 'Back to overview' },
+      ],
+    }
     return c.ok(
       {
         summary: { total: findings.length, by_level },
         findings,
+        cta,
       },
-      {
-        cta: {
-          description: 'Next:',
-          commands: [
-            {
-              command: 'zones show',
-              args: { id: 'discord-deploy' },
-              description: 'Inspect the most-gap zone',
-            },
-            { command: 'zones list', description: 'Back to overview' },
-          ],
-        },
-      },
+      { cta },
     )
   },
 })
