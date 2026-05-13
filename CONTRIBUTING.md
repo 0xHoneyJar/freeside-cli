@@ -49,7 +49,7 @@ node dist/bin/freeside.js --version
 
 - CLI sovereign · construct (e.g. `construct-freeside`) is the LLM lens · they compose
 - No LLM calls from inside this binary
-- Built on [`incur`](https://github.com/) — `--llms` + `--mcp` + skill files come for free
+- Built on [`incur`](https://www.npmjs.com/package/incur) — `--llms` + `--mcp` + skill files come for free
 - Zones declared in `src/zones/manifest.ts` (load-bearing data)
 - Worlds declared in `src/worlds/registry.ts` (consumer registry)
 
@@ -85,7 +85,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 - Worlds consume zones; consumers are separate from zone homes (per subway doctrine)
 - This CLI is the navigator across all zones; it imports zones' published packages
 
-See `~/vault/wiki/concepts/freeside-as-subway.md` for the canonical doctrine.
+See the **freeside-as-subway** doctrine (operator-maintained · summary: every `freeside-*` repo IS the zone home for its schema · consumers are separate · sovereign infrastructure is an option not a requirement).
 
 ## Releases
 

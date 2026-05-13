@@ -1,11 +1,12 @@
 import { Cli } from 'incur'
+import { VERSION } from './version.ts'
 import { zones } from './commands/zones.ts'
 import { worlds } from './commands/worlds.ts'
 import { doctor } from './commands/doctor.ts'
 import { status } from './commands/status.ts'
 
 export const cli = Cli.create('freeside', {
-  version: '0.2.0-alpha.0',
+  version: VERSION,
   description:
     'Sovereign CLI for Freeside. Navigate zones, worlds, deployments deterministically. CLI is sovereign · construct is lens · they compose.',
   sync: {
