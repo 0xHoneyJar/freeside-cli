@@ -19,7 +19,7 @@
  * code. The spine (canonical user_id + JWT issuance) lives elsewhere (freeside-auth).
  */
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { isHeadless } from '../probe/types.ts'
@@ -84,7 +84,16 @@ interface FileStoreShape {
   records: Record<string, { token: string; expiresAt: number | null }>
 }
 
-function deriveKey(): Buffer {
+// File layout v2: [12 IV][16 AUTH_TAG][16 SALT][...CIPHERTEXT]
+// Salt stored with ciphertext · per bridgebuilder PR #13 HIGH fix.
+// Salt-in-ciphertext eliminates the version-bump credential-loss class
+// (key derivation no longer depends on any compile-time string).
+const SALT_LEN = 16
+const IV_LEN = 12
+const TAG_LEN = 16
+const HEADER_LEN = IV_LEN + TAG_LEN + SALT_LEN
+
+function deriveKey(salt: Buffer): Buffer {
   const env = process.env.FREESIDE_CRED_KEY
   if (!env || env.length < 16) {
     throw new Error(
@@ -92,39 +101,55 @@ function deriveKey(): Buffer {
         'Generate: openssl rand -hex 32',
     )
   }
-  // scrypt-derive a 32-byte key from the env passphrase + a fixed-app salt.
-  // Salt is non-secret · derivation discipline matters more than salt-secrecy here.
-  return scryptSync(env, 'freeside-cli-v0.2', 32)
+  return scryptSync(env, salt, 32)
 }
 
 function loadFile(): FileStoreShape {
   if (!existsSync(FILE_PATH)) return { records: {} }
   const raw = readFileSync(FILE_PATH)
-  if (raw.length < 28) return { records: {} }
-  // layout: [12 IV][16 AUTH_TAG][...CIPHERTEXT]
-  const iv = raw.subarray(0, 12)
-  const tag = raw.subarray(12, 28)
-  const ct = raw.subarray(28)
-  const decipher = createDecipheriv(ALGO, deriveKey(), iv)
+  if (raw.length < HEADER_LEN) return { records: {} }
+  const iv = raw.subarray(0, IV_LEN)
+  const tag = raw.subarray(IV_LEN, IV_LEN + TAG_LEN)
+  const salt = raw.subarray(IV_LEN + TAG_LEN, HEADER_LEN)
+  const ct = raw.subarray(HEADER_LEN)
+  const decipher = createDecipheriv(ALGO, deriveKey(salt), iv)
   decipher.setAuthTag(tag)
+  // Per bridgebuilder PR #13 LOW L-2: distinguish decryption-failure from
+  // post-decrypt JSON parse failure so error messages don't misattribute.
+  let plain: Buffer
   try {
-    const plain = Buffer.concat([decipher.update(ct), decipher.final()])
+    plain = Buffer.concat([decipher.update(ct), decipher.final()])
+  } catch {
+    throw new Error(
+      '[freeside-cli] credentials.enc decryption failed · FREESIDE_CRED_KEY may be wrong or file tampered',
+    )
+  }
+  try {
     return JSON.parse(plain.toString('utf-8')) as FileStoreShape
   } catch {
     throw new Error(
-      '[freeside-cli] credentials.enc decryption failed · FREESIDE_CRED_KEY may have changed',
+      '[freeside-cli] credentials.enc decrypted but JSON malformed · delete ~/.freeside/credentials.enc to reset',
     )
   }
 }
 
 function saveFile(data: FileStoreShape): void {
   if (!existsSync(FILE_DIR)) mkdirSync(FILE_DIR, { recursive: true, mode: 0o700 })
-  const iv = randomBytes(12)
-  const cipher = createCipheriv(ALGO, deriveKey(), iv)
+  const iv = randomBytes(IV_LEN)
+  const salt = randomBytes(SALT_LEN)
+  const cipher = createCipheriv(ALGO, deriveKey(salt), iv)
   const plain = Buffer.from(JSON.stringify(data), 'utf-8')
   const ct = Buffer.concat([cipher.update(plain), cipher.final()])
   const tag = cipher.getAuthTag()
-  writeFileSync(FILE_PATH, Buffer.concat([iv, tag, ct]), { mode: 0o600 })
+  // Per bridgebuilder PR #13 MEDIUM M-2: write to temp + atomic rename
+  // prevents concurrent-write corruption (POSIX rename atomic on same fs).
+  const tmpPath = `${FILE_PATH}.tmp.${process.pid}.${Date.now()}`
+  writeFileSync(tmpPath, Buffer.concat([iv, tag, salt, ct]), { mode: 0o600 })
+  // renameSync IS the atomic step on POSIX (same filesystem). Windows
+  // semantics are weaker; for v0.2 ALPHA we accept that risk. A formal
+  // lockfile (proper-lockfile) becomes the v0.3 hardening if races
+  // materialize in practice.
+  renameSync(tmpPath, FILE_PATH)
 }
 
 class FileKeychain implements KeychainAdapter {
@@ -216,8 +241,11 @@ export function selectBackend(requested: CredentialBackend = 'auto'): KeychainAd
   if (requested === 'memory') return getMemory()
   if (requested === 'file') return new FileKeychain()
   if (requested === 'os') return new OsKeychainStub()
-  // auto
-  if (isHeadless()) return new FileKeychain()
+  // auto · current behavior: always file (os stub throws in v0.2).
+  // v0.3+: try OS backend first (via @0xhoneyjar/freeside-auth-adapters/keychain)
+  // and fall back to file when isHeadless() OR OS adapter unavailable.
+  // Per bridgebuilder PR #13 MEDIUM M-1: dead-branch eliminated · path
+  // documented above explaining the v0.3 migration.
   return new FileKeychain()
 }
 

@@ -4,7 +4,7 @@
  * Runs the cli with custom argv + stdout capture (incur's serve() supports
  * dependency injection for testability — no subprocess required).
  */
-import { describe, test, expect } from 'bun:test'
+import { describe, test, expect, afterEach } from 'bun:test'
 import cli from '../src/cli.ts'
 
 interface CapturedRun {
@@ -475,7 +475,14 @@ describe('Sprint 4 · composition proof (Group A · cli surface)', () => {
   })
 
   describe('T3 · credential keychain adapter (FR-KEY-5 backends)', () => {
-    test('credential add with memory backend stores + retrieves', async () => {
+    // Per bridgebuilder PR #13 LOW L-1: reset memory singleton between tests
+    // so test order doesn't matter and stores don't bleed across cases.
+    afterEach(async () => {
+      const { _resetMemoryForTests } = await import('../src/credentials/keychain.ts')
+      _resetMemoryForTests()
+    })
+
+    test('credential add with memory backend stores + retrieves (in-process)', async () => {
       const acct = 'test-acct-memory-' + Date.now()
       const addR = await run([
         'credential', 'add', acct,
@@ -509,17 +516,19 @@ describe('Sprint 4 · composition proof (Group A · cli surface)', () => {
       expect(data.present).toBe(false)
     })
 
-    test('os backend stub returns clear NOT_IMPLEMENTED with migration CTA', async () => {
+    test('os backend stub returns structured error envelope with migration CTA', async () => {
       // The os backend is intentionally not-yet-implemented in v0.2 ·
-      // v0.3 wires @0xhoneyjar/freeside-auth-adapters/keychain
+      // v0.3 wires @0xhoneyjar/freeside-auth-adapters/keychain.
+      // Per bridgebuilder PR #13 LOW L-3: assert on the structured envelope.
       const r = await run([
         'credential', 'add', 'test-os',
         '--token', 'X', '--backend', 'os', '--json',
       ])
-      // Throw inside run() propagates as an error envelope (incur catches)
-      // Either the test verifies error code OR catches the throw shape · be flexible
-      const out = r.stdout + r.stderr
-      expect(out).toMatch(/NOT YET IMPLEMENTED|os keychain/i)
+      const env = parseJson(r.stdout)
+      // incur surfaces uncaught throws as { code, message } envelope at root
+      expect(env.code).toBeDefined()
+      expect(env.message).toMatch(/NOT YET IMPLEMENTED|os keychain/i)
+      expect(r.exitCode).not.toBe(0)
     })
   })
 
