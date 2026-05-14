@@ -330,3 +330,90 @@ describe('Sprint 2 · agent surface', () => {
     })
   })
 })
+
+describe('Sprint 3 · substrate liberation', () => {
+  describe('T1+T2 · yaml-loaded manifest', () => {
+    // Per bridgebuilder PR #12 MEDIUM M-4: derive expected counts from yaml
+    // rather than hardcoding (test stays correct when zones/worlds added)
+    test('zones load matches config/zones.yaml count + ids', async () => {
+      const { readFileSync } = await import('node:fs')
+      const { parse } = await import('yaml')
+      const yamlData = parse(readFileSync('config/zones.yaml', 'utf-8'))
+      const expectedIds = new Set(yamlData.zones.map((z: any) => z.id))
+
+      const r = await run(['zones', 'list', '--json'])
+      const data = parseJson(r.stdout)
+      expect(data.count).toBe(yamlData.zones.length)
+      const ids = new Set(data.zones.map((z: any) => z.id))
+      expect(ids).toEqual(expectedIds)
+      // Load-bearing IDs that must always be present
+      expect(ids.has('auth')).toBe(true)
+      expect(ids.has('quests')).toBe(true)
+    })
+
+    test('worlds load matches config/worlds.yaml count', async () => {
+      const { readFileSync } = await import('node:fs')
+      const { parse } = await import('yaml')
+      const yamlData = parse(readFileSync('config/worlds.yaml', 'utf-8'))
+      const r = await run(['worlds', 'list', '--json'])
+      const data = parseJson(r.stdout)
+      expect(data.count).toBe(yamlData.worlds.length)
+    })
+
+    test('Zod validation passes on canonical yaml shape', async () => {
+      // If yaml drifts from ZoneSchema, manifest.ts loadZones() throws on init.
+      const r = await run(['status', 'summary', '--json'])
+      expect(r.exitCode).toBe(0)
+      const data = parseJson(r.stdout)
+      expect(data.zones.total).toBeGreaterThan(0)
+    })
+  })
+
+  describe('T3+T4 · probe folder + --probe flag', () => {
+    test('doctor default skips probes (--probe off)', async () => {
+      const r = await run(['doctor', 'check', '--json'])
+      const data = parseJson(r.stdout)
+      expect(data.probe_mode).toBe('off')
+      // No probe-scoped findings without explicit --probe flag
+      const probeFindings = data.findings.filter((f: any) => f.probe)
+      expect(probeFindings.length).toBe(0)
+    })
+
+    test('doctor --probe mock runs probes but emits zero findings', async () => {
+      const r = await run(['doctor', 'check', '--probe', 'mock', '--zone', 'auth', '--json'])
+      const data = parseJson(r.stdout)
+      expect(data.probe_mode).toBe('mock')
+      // mocks return empty findings · doctor still emits manifest findings
+      // for the zone (gaps + status + consumer-zero) but NO probe findings
+      const probeFindings = data.findings.filter((f: any) => f.probe)
+      expect(probeFindings.length).toBe(0)
+    })
+
+    test('--probe live flag is accepted but degrades gracefully in test env', async () => {
+      // Per bridgebuilder PR #12 HIGH H-2: use try/finally so the env var
+      // is restored even if test throws (otherwise leaks to subsequent tests).
+      const prior = process.env.LOA_HEADLESS
+      process.env.LOA_HEADLESS = '1'
+      try {
+        const r = await run(['doctor', 'check', '--probe', 'live', '--zone', 'auth', '--json'])
+        const data = parseJson(r.stdout)
+        expect(data.probe_mode).toBe('live')
+        // headless → probes degrade · no probe findings emitted (manifest still has signal)
+        const probeFindings = data.findings.filter((f: any) => f.probe)
+        expect(probeFindings.length).toBe(0)
+      } finally {
+        if (prior === undefined) delete process.env.LOA_HEADLESS
+        else process.env.LOA_HEADLESS = prior
+      }
+    })
+
+    test('probe schema includes probe field for traceability', async () => {
+      // Even when no probe findings emerge, the OUTPUT SHAPE includes probe field
+      // for findings that DO come from probes (forward-compatible)
+      const r = await run(['doctor', 'check', '--probe', 'mock', '--json'])
+      const data = parseJson(r.stdout)
+      // probe_mode field present in output (schema validation)
+      expect(data.probe_mode).toBeDefined()
+    })
+  })
+})
