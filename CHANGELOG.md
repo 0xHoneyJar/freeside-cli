@@ -7,6 +7,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-05-13 — Foundation Release · Doctrine Made Active cycle
+
+First proper release. Four sprints shipped end-to-end (S1 ship foundation · S2 agent surface · S3 substrate liberation · S4 Group A composition proof). Each landed via implement → bridgebuilder review → fix-pass → CI green → squash-merge.
+
+### Added (cumulative across S1-S4 Group A)
+
+**S4 Group A — composition proof (cli surface)**
+- Three-layer verb taxonomy per identity-spine doctrine:
+  - `freeside credential add|list|test` — credential layer (functional · keychain backend)
+  - `freeside identity show|link|whoami` — spine layer (scaffold · v0.3 wires spine)
+  - `freeside session validate|verify-jwks` — session layer (scaffold · v0.3 wires JWKS)
+- Keychain adapter w/ FR-KEY-5 graceful degradation: memory + file (AES-256-GCM · salt-in-ciphertext) + os stub
+- MCP `tools/list` surfaces 14 typed tools (was 6 · +8 from three-layer verbs)
+- Identity zone rename (was `auth`) · three-layer ports declared
+
+**S3 — substrate liberation**
+- `config/zones.yaml` + `config/worlds.yaml` (operator-editable · Zod-validated at load)
+- `src/probe/` honeycomb four-folder pattern (`types.ts` + `github.live.ts` + `npm.live.ts` + `http.live.ts` + `mocks/` + `index.ts`)
+- `freeside doctor check --probe <live|mock|off>` flag · default off (zero perf)
+- `isHeadless()` detection · B5 graceful degradation in CI/headless envs
+- `config/` ships in npm tarball
+
+**S2 — agent surface**
+- Shared `ctaSchema` in `src/lib/cta.ts` · CTAs embedded in typed `output:` schemas
+- MCP `structuredContent` includes CTAs (was stripped pre-S2)
+- All 6 read-side commands have full `outputSchema` for MCP discoverability
+- Three independent doctor signals (item-level gaps · zone-level status · cross-cut consumer-zero)
+- `src/version.ts` single-source version (imports `package.json`)
+
+**S1 — ship foundation**
+- `tsup` build pipeline → `dist/bin/freeside.js` (npm-installable under node)
+- `prepublishOnly` script
+- LICENSE · CHANGELOG · SECURITY · CONTRIBUTING
+- CI workflow with bun cache
+- `incur@0.4.5` pinned exact
+
+### Changed
+
+- Package description: short-form "Freeside operations CLI for agents and humans" (was long doctrinal sentence)
+- Zone naming: `auth` → `identity` (matches `freeside-as-identity-spine` doctrine)
+- Score zone home: `score-mibera` → `freeside-score` (subway doctrine · operator correction)
+- Doctor's gap-detection: three independent signals (was redundant single-pipeline)
+- README + CONTRIBUTING incur links: github root → npmjs canonical
+
+### Fixed
+
+- F-CRIT-1: bin runtime broken under node (shebang on `.ts` source) → tsup-built dist
+- F-HIGH-1: `_show` commands missing MCP `outputSchema`
+- F-HIGH-2: CTAs stripped on MCP path (now embedded in typed output schemas)
+- npm URL encoding for scoped packages with sub-export paths (`@scope/pkg/sub` correctly resolves to scope+pkg)
+- File backend salt-in-ciphertext (was version-string baked · would lose credentials on version bump)
+- Atomic write-then-rename pattern on `credentials.enc` (concurrent-write safety)
+
+### Doctrine candidates
+
+Coined / sharpened across the cycle:
+- `zones-as-hexagonal-seam` (operator-coined 2026-05-13)
+- `cli-as-substrate-construct-as-lens` (gecko 2026-05-12 · validated via 4-sprint ship)
+- Subway-doctrine alignment ratified (every `freeside-*` IS the zone home · operator-confirmed)
+
+### Filed upstream
+
+- `wevm/incur#140` — feature request: `_meta.cta` first-class MCP support (path B for F-HIGH-2 · current solution embeds in output schemas)
+- `0xHoneyJar/loa#878` — flatline-orchestrator mktemp/chmod cosmetic
+- `0xHoneyJar/loa#880` — claude-headless subscription routing structural defect
+
+### Cycle artifacts
+
+- PRD: `bonfire/grimoires/loa/prd.md` (Doctrine Made Active)
+- SDD: `bonfire/grimoires/loa/sdd.md`
+- Sprint plan: `bonfire/grimoires/loa/sprint.md`
+- 4 PRs merged: #10 (S1) · #11 (S2) · #12 (S3) · #13 (S4 Group A)
+
+### Deferred to v0.3+
+
+- Cross-`@0xhoneyjar/*` import (freeside-cli → freeside-auth-adapters/keychain) — companion `freeside-auth#3` operator-paced
+- Reverse-extraction test (cubquests → quests-engine) — lane B1 falsification gate
+- Immune-system construct (S4 Group B) · GH Action packaging (Group C) · backtest cohort (Group D) — multi-day operator-decision work
+- Write-side verbs (`deploy`, `install`) — gate on zone live adapters publishing
+
 ## [0.2.0-alpha.0] — 2026-05-13 — Ship Foundation (Sprint 1)
 
 ### Added

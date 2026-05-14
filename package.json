@@ -1,7 +1,7 @@
 {
   "name": "@0xhoneyjar/freeside-cli",
-  "version": "0.2.0-alpha.0",
-  "description": "Sovereign CLI for navigating Freeside zones, worlds, and deployments. The CLI is sovereign · the construct is the lens · they compose.",
+  "version": "0.2.0",
+  "description": "Freeside operations CLI for agents and humans.",
   "type": "module",
   "license": "MIT",
   "files": [
