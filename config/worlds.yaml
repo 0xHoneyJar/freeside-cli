@@ -5,7 +5,7 @@ worlds:
       - characters
       - mediums
       - storage
-      - auth
+      - identity
     substrate:
       deploy: vercel
       data: convex
@@ -17,7 +17,7 @@ worlds:
     zones_claimed:
       - characters
       - storage
-      - auth
+      - identity
       - score
     substrate:
       deploy: vercel
@@ -31,7 +31,7 @@ worlds:
       - characters
       - storage
       - score
-      - auth
+      - identity
       - sonar
     substrate:
       deploy: vercel
@@ -42,7 +42,7 @@ worlds:
   - id: apdao
     domain: apiologydao.0xhoneyjar.xyz
     zones_claimed:
-      - auth
+      - identity
       - score
       - sonar
     substrate:
@@ -55,7 +55,7 @@ worlds:
     domain: cubquests.com
     zones_claimed:
       - quests
-      - auth
+      - identity
       - storage
       - sonar
     substrate:

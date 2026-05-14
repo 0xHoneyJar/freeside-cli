@@ -51,17 +51,18 @@ zones:
       - zero consumers yet · reverse-extraction test (PRD lane B1) is the falsification gate
       - no Vercel/Railway adapter published — only inline cubquests pattern
       - IQuestIndexer port shape unclear — subsquid integration in EXTRACTION-MAP but unbuilt
-  - id: auth
-    description: Identity, sessions, tenants, wallet-linking. Every other zone depends on this.
+  - id: identity
+    description: Three-layer spine — credential (adapters) · identity (canonical THJ user_id + JWT issuance) · session (per-world JWT
+      verification). Every zone with auth needs depends on this.
     ports:
-      - IAuthProvider
-      - ISessionStore
-      - ITenantBoundary
+      - ICredentialProvider
+      - IIdentitySpine
+      - ISessionVerifier
     schemas:
+      - Credential
       - Identity
       - Session
-      - Tenant
-      - WalletLink
+      - JWTClaims
     home: freeside-auth
     adapters:
       - name: jwt-live
@@ -69,16 +70,16 @@ zones:
         notes: Engine package landed 2026-05-06 sprint-1 in 6-package shape (protocol/ports/adapters/engine/mcp-tools/ui).
       - name: keychain-cli-live
         substrate: self-hosted
-        notes: CLI uses OS keychain (macOS Keychain / linux secret-service / Windows credential manager) for token storage. NEW
-          adapter for v0.1.
+        notes: Inline freeside-cli credential adapter. Three backends (os/memory/file) with FR-KEY-5 graceful degradation in
+          headless/CI. v0.3+ migrates to @0xhoneyjar/freeside-auth-adapters/keychain once companion published (freeside-auth#3).
     status: active
     consumers:
-      - (no cross-@0xhoneyjar consumer yet — freeside-cli is the first)
+      - freeside-cli (inline credential adapter · S4.T3 ships 2026-05-13)
     tiering:
       free: team brings own JWT signing key
       managed: Freeside-issued JWKS · multi-tenant signing keys at loa-freeside/apps/gateway
     gaps:
-      - no cross-module consumer yet — composition-thesis unproven
+      - cross-module consumer pending · companion freeside-auth#3 awaits operator-paced publish
       - wallet-link port shape may diverge from existing apdao-auction-house pattern · needs reconciliation
       - tenant boundary semantics under-specified for multi-world deployments
   - id: score
