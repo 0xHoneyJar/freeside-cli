@@ -5,3 +5,4 @@ dist/
 .env
 .env.local
 incur.generated.ts
+*.tgz
