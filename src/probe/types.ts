@@ -40,12 +40,12 @@ export interface Probe {
 /**
  * Detect headless / CI environments. B5 fold-in: probes degrade
  * gracefully rather than crash when interactive auth is unavailable.
+ *
+ * Per bridgebuilder PR #12 MEDIUM M-5: `isHeadless()` only reflects
+ * environment characteristics. Probe-mode selection (live vs mock)
+ * is the responsibility of `selectProbes(mode)` in index.ts ·
+ * environment detection and mode selection are orthogonal concerns.
  */
 export function isHeadless(env: NodeJS.ProcessEnv = process.env): boolean {
-  return (
-    env.CI === 'true' ||
-    env.GITHUB_ACTIONS === 'true' ||
-    env.LOA_HEADLESS === '1' ||
-    !!env.LOA_PROBE_MODE_MOCK
-  )
+  return env.CI === 'true' || env.GITHUB_ACTIONS === 'true' || env.LOA_HEADLESS === '1'
 }

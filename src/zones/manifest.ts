@@ -19,10 +19,9 @@
  * [[cli-as-substrate-construct-as-lens]] + honeycomb/effect-substrate.
  */
 import { z } from 'incur'
-import { readFileSync, existsSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
+import { readFileSync } from 'node:fs'
 import { parse as parseYaml } from 'yaml'
+import { resolveConfigPath } from '../lib/config-path.ts'
 
 export const zoneStatusSchema = z.enum(['active', 'draft', 'aspirational', 'extracted'])
 export type ZoneStatus = z.infer<typeof zoneStatusSchema>
@@ -69,35 +68,8 @@ const zonesFileSchema = z.object({
   zones: z.array(zoneSchema),
 })
 
-/**
- * Resolve config/zones.yaml relative to the package root.
- * Works under:
- *   - `bun run src/bin/freeside.ts` (dev · cwd-relative)
- *   - `node dist/bin/freeside.js` (post-build · resolves from package install)
- *
- * Resolution order: env override → package root (via import.meta.url) → cwd.
- */
-function resolveConfigPath(filename: string): string {
-  const envOverride = process.env.LOA_FREESIDE_CONFIG_DIR
-  if (envOverride) {
-    const p = join(envOverride, filename)
-    if (existsSync(p)) return p
-  }
-  const here = dirname(fileURLToPath(import.meta.url))
-  // src/zones/manifest.ts → ../../config/<file>
-  // dist/bin/freeside.js  → ../../config/<file>
-  const fromModule = join(here, '..', '..', 'config', filename)
-  if (existsSync(fromModule)) return fromModule
-  // Fallback: cwd-relative (for tests + ad-hoc runs)
-  const fromCwd = join(process.cwd(), 'config', filename)
-  if (existsSync(fromCwd)) return fromCwd
-  throw new Error(
-    `[freeside-cli] config/${filename} not found. Searched: env LOA_FREESIDE_CONFIG_DIR, ${fromModule}, ${fromCwd}`,
-  )
-}
-
 function loadZones(): Zone[] {
-  const path = resolveConfigPath('zones.yaml')
+  const path = resolveConfigPath('zones.yaml', import.meta.url)
   const raw = readFileSync(path, 'utf-8')
   const parsed = parseYaml(raw)
   const result = zonesFileSchema.safeParse(parsed)

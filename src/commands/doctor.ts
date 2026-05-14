@@ -22,7 +22,7 @@ import { probeZones, type ProbeMode } from '../probe/index.ts'
 
 interface Finding {
   level: 'ok' | 'warn' | 'gap' | 'error'
-  scope: 'zone' | 'world' | 'cross-cut'
+  scope: 'zone' | 'world' | 'cross-cut' | 'probe'
   ref: string
   message: string
 }
@@ -148,7 +148,7 @@ doctor.command('check', {
     findings: z.array(
       z.object({
         level: z.string(),
-        scope: z.string(),
+        scope: z.enum(['zone', 'world', 'cross-cut', 'probe']),
         ref: z.string(),
         message: z.string(),
         probe: z.string().optional(),
@@ -173,11 +173,12 @@ doctor.command('check', {
         ? ZONES.filter((z) => z.id === c.options.zone)
         : ZONES
       const probeFindings = await probeZones(zonesToProbe, probeMode as ProbeMode)
-      // Cast probe findings to the doctor Finding shape · widen scope union
+      // Per bridgebuilder PR #12 MEDIUM M-3: preserve scope: 'probe' so
+      // downstream filtering (future --scope probe flag) gets correct results.
       for (const pf of probeFindings) {
         findings.push({
           level: pf.level,
-          scope: 'cross-cut',
+          scope: pf.scope, // 'probe' · per ProbeFinding type
           ref: pf.ref,
           message: pf.message,
           probe: pf.probe,

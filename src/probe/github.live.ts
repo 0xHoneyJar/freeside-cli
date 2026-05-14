@@ -58,15 +58,12 @@ export const githubLive: Probe = {
     const budget_ms = opts.budget_ms ?? 3000
     const slug = resolveRepoSlug(zone.home)
     if (!slug) {
-      return [
-        {
-          level: 'gap',
-          scope: 'probe',
-          ref: `${zone.id}:home`,
-          probe: 'github.live',
-          message: `Cannot resolve GitHub slug from home: "${zone.home}"`,
-        },
-      ]
+      // Per bridgebuilder PR #12 MEDIUM M-2: when home explicitly encodes
+      // "(NEW — not yet created)" or doesn't match a slug pattern, the
+      // manifest's gaps[] array already captures the not-extant intent
+      // at the structural level. Emitting a redundant probe gap would
+      // double-count. Return empty.
+      return []
     }
     const r = await execGh(['repo', 'view', slug, '--json', 'pushedAt'], budget_ms)
     if (!r.ok) {

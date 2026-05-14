@@ -15,10 +15,9 @@
  * declarations.
  */
 import { z } from 'incur'
-import { readFileSync, existsSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
+import { readFileSync } from 'node:fs'
 import { parse as parseYaml } from 'yaml'
+import { resolveConfigPath } from '../lib/config-path.ts'
 
 export const worldSchema = z.object({
   id: z.string(),
@@ -39,24 +38,8 @@ const worldsFileSchema = z.object({
   worlds: z.array(worldSchema),
 })
 
-function resolveConfigPath(filename: string): string {
-  const envOverride = process.env.LOA_FREESIDE_CONFIG_DIR
-  if (envOverride) {
-    const p = join(envOverride, filename)
-    if (existsSync(p)) return p
-  }
-  const here = dirname(fileURLToPath(import.meta.url))
-  const fromModule = join(here, '..', '..', 'config', filename)
-  if (existsSync(fromModule)) return fromModule
-  const fromCwd = join(process.cwd(), 'config', filename)
-  if (existsSync(fromCwd)) return fromCwd
-  throw new Error(
-    `[freeside-cli] config/${filename} not found. Searched: env LOA_FREESIDE_CONFIG_DIR, ${fromModule}, ${fromCwd}`,
-  )
-}
-
 function loadWorlds(): World[] {
-  const path = resolveConfigPath('worlds.yaml')
+  const path = resolveConfigPath('worlds.yaml', import.meta.url)
   const raw = readFileSync(path, 'utf-8')
   const parsed = parseYaml(raw)
   const result = worldsFileSchema.safeParse(parsed)

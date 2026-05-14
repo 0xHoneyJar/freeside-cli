@@ -333,30 +333,39 @@ describe('Sprint 2 · agent surface', () => {
 
 describe('Sprint 3 · substrate liberation', () => {
   describe('T1+T2 · yaml-loaded manifest', () => {
-    test('zones load from config/zones.yaml (not hardcoded)', async () => {
-      // Validation: zones count + ids match the yaml file content
+    // Per bridgebuilder PR #12 MEDIUM M-4: derive expected counts from yaml
+    // rather than hardcoding (test stays correct when zones/worlds added)
+    test('zones load matches config/zones.yaml count + ids', async () => {
+      const { readFileSync } = await import('node:fs')
+      const { parse } = await import('yaml')
+      const yamlData = parse(readFileSync('config/zones.yaml', 'utf-8'))
+      const expectedIds = new Set(yamlData.zones.map((z: any) => z.id))
+
       const r = await run(['zones', 'list', '--json'])
       const data = parseJson(r.stdout)
-      expect(data.count).toBe(9) // 9 zones in config/zones.yaml
+      expect(data.count).toBe(yamlData.zones.length)
       const ids = new Set(data.zones.map((z: any) => z.id))
-      expect(ids.has('discord-deploy')).toBe(true)
-      expect(ids.has('sonar')).toBe(true)
-      expect(ids.has('score')).toBe(true)
+      expect(ids).toEqual(expectedIds)
+      // Load-bearing IDs that must always be present
+      expect(ids.has('auth')).toBe(true)
+      expect(ids.has('quests')).toBe(true)
     })
 
-    test('worlds load from config/worlds.yaml (not hardcoded)', async () => {
+    test('worlds load matches config/worlds.yaml count', async () => {
+      const { readFileSync } = await import('node:fs')
+      const { parse } = await import('yaml')
+      const yamlData = parse(readFileSync('config/worlds.yaml', 'utf-8'))
       const r = await run(['worlds', 'list', '--json'])
       const data = parseJson(r.stdout)
-      expect(data.count).toBe(5)
+      expect(data.count).toBe(yamlData.worlds.length)
     })
 
     test('Zod validation passes on canonical yaml shape', async () => {
       // If yaml drifts from ZoneSchema, manifest.ts loadZones() throws on init.
-      // This test confirms successful load by exercising any zone command.
       const r = await run(['status', 'summary', '--json'])
       expect(r.exitCode).toBe(0)
       const data = parseJson(r.stdout)
-      expect(data.zones.total).toBe(9)
+      expect(data.zones.total).toBeGreaterThan(0)
     })
   })
 
@@ -381,16 +390,21 @@ describe('Sprint 3 · substrate liberation', () => {
     })
 
     test('--probe live flag is accepted but degrades gracefully in test env', async () => {
-      // Tests run with LOA_HEADLESS=1 (or under bun-test detection) so live probes
-      // return empty findings via isHeadless() short-circuit per B5 fold-in.
+      // Per bridgebuilder PR #12 HIGH H-2: use try/finally so the env var
+      // is restored even if test throws (otherwise leaks to subsequent tests).
+      const prior = process.env.LOA_HEADLESS
       process.env.LOA_HEADLESS = '1'
-      const r = await run(['doctor', 'check', '--probe', 'live', '--zone', 'auth', '--json'])
-      const data = parseJson(r.stdout)
-      expect(data.probe_mode).toBe('live')
-      // headless → probes degrade · no probe findings emitted (manifest still has signal)
-      const probeFindings = data.findings.filter((f: any) => f.probe)
-      expect(probeFindings.length).toBe(0)
-      delete process.env.LOA_HEADLESS
+      try {
+        const r = await run(['doctor', 'check', '--probe', 'live', '--zone', 'auth', '--json'])
+        const data = parseJson(r.stdout)
+        expect(data.probe_mode).toBe('live')
+        // headless → probes degrade · no probe findings emitted (manifest still has signal)
+        const probeFindings = data.findings.filter((f: any) => f.probe)
+        expect(probeFindings.length).toBe(0)
+      } finally {
+        if (prior === undefined) delete process.env.LOA_HEADLESS
+        else process.env.LOA_HEADLESS = prior
+      }
     })
 
     test('probe schema includes probe field for traceability', async () => {

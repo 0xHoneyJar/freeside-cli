@@ -35,9 +35,17 @@ export const npmLive: Probe = {
     const findings: ProbeFinding[] = []
     for (const adapter of adaptersWithPackage) {
       const pkg = adapter.package!
-      // npm registry URL: encode @scope/name properly
-      const encoded = pkg.replace('/', '%2F').replace('@', '%40')
-      const url = `https://registry.npmjs.org/${encoded.startsWith('%40') ? encoded : pkg}`
+      // Strip sub-export path (npm registry has no concept of deep imports)
+      // and encode the package name correctly. Per bridgebuilder PR #12 HIGH H-1.
+      // Examples:
+      //   @0xhoneyjar/freeside-auth/adapters/keychain → @0xhoneyjar/freeside-auth
+      //   @0xhoneyjar/freeside-score                 → @0xhoneyjar/freeside-score
+      //   express                                     → express
+      const parts = pkg.split('/')
+      const pkgName = pkg.startsWith('@') && parts.length >= 2
+        ? `${parts[0]}/${parts[1]}`
+        : (parts[0] ?? pkg)
+      const url = `https://registry.npmjs.org/${encodeURIComponent(pkgName)}`
       const r = await fetchWithTimeout(url, budget_ms)
       if (!r) {
         // network failure · degrade gracefully (don't emit · operator sees no signal)
