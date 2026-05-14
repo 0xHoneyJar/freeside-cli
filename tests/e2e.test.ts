@@ -70,7 +70,7 @@ describe('zones list / show', () => {
     expect(ids).toEqual([
       'discord-deploy',
       'quests',
-      'auth',
+      'identity',
       'score',
       'storage',
       'sonar',
@@ -238,10 +238,10 @@ describe('Sprint 2 · agent surface', () => {
     })
 
     test('zones show output has typed Zone shape + cta', async () => {
-      const r = await run(['zones', 'show', 'auth', '--json'])
+      const r = await run(['zones', 'show', 'identity', '--json'])
       const data = parseJson(r.stdout)
       // typed Zone shape (T1)
-      expect(data.id).toBe('auth')
+      expect(data.id).toBe('identity')
       expect(Array.isArray(data.ports)).toBe(true)
       expect(Array.isArray(data.adapters)).toBe(true)
       expect(Array.isArray(data.consumers)).toBe(true)
@@ -347,7 +347,7 @@ describe('Sprint 3 · substrate liberation', () => {
       const ids = new Set(data.zones.map((z: any) => z.id))
       expect(ids).toEqual(expectedIds)
       // Load-bearing IDs that must always be present
-      expect(ids.has('auth')).toBe(true)
+      expect(ids.has('identity')).toBe(true)
       expect(ids.has('quests')).toBe(true)
     })
 
@@ -380,7 +380,7 @@ describe('Sprint 3 · substrate liberation', () => {
     })
 
     test('doctor --probe mock runs probes but emits zero findings', async () => {
-      const r = await run(['doctor', 'check', '--probe', 'mock', '--zone', 'auth', '--json'])
+      const r = await run(['doctor', 'check', '--probe', 'mock', '--zone', 'identity', '--json'])
       const data = parseJson(r.stdout)
       expect(data.probe_mode).toBe('mock')
       // mocks return empty findings · doctor still emits manifest findings
@@ -395,7 +395,7 @@ describe('Sprint 3 · substrate liberation', () => {
       const prior = process.env.LOA_HEADLESS
       process.env.LOA_HEADLESS = '1'
       try {
-        const r = await run(['doctor', 'check', '--probe', 'live', '--zone', 'auth', '--json'])
+        const r = await run(['doctor', 'check', '--probe', 'live', '--zone', 'identity', '--json'])
         const data = parseJson(r.stdout)
         expect(data.probe_mode).toBe('live')
         // headless → probes degrade · no probe findings emitted (manifest still has signal)
@@ -414,6 +414,130 @@ describe('Sprint 3 · substrate liberation', () => {
       const data = parseJson(r.stdout)
       // probe_mode field present in output (schema validation)
       expect(data.probe_mode).toBeDefined()
+    })
+  })
+})
+
+describe('Sprint 4 · composition proof (Group A · cli surface)', () => {
+  describe('T4 · zone rename auth → identity', () => {
+    test('identity zone present (auth zone removed)', async () => {
+      const r = await run(['zones', 'list', '--json'])
+      const data = parseJson(r.stdout)
+      const ids = new Set(data.zones.map((z: any) => z.id))
+      expect(ids.has('identity')).toBe(true)
+      expect(ids.has('auth')).toBe(false)
+    })
+
+    test('identity zone declares three-layer ports', async () => {
+      const r = await run(['zones', 'show', 'identity', '--json'])
+      const z = parseJson(r.stdout)
+      expect(z.ports).toContain('ICredentialProvider')
+      expect(z.ports).toContain('IIdentitySpine')
+      expect(z.ports).toContain('ISessionVerifier')
+    })
+
+    test('worlds reference identity (no auth references)', async () => {
+      const r = await run(['worlds', 'list', '--json'])
+      const data = parseJson(r.stdout)
+      for (const w of data.worlds) {
+        expect(w.zones_claimed).not.toContain('auth')
+      }
+      // At least one world claims identity (formerly auth)
+      const someClaims = data.worlds.some((w: any) => w.zones_claimed.includes('identity'))
+      expect(someClaims).toBe(true)
+    })
+  })
+
+  describe('T5 · three-layer verb taxonomy (credential / identity / session)', () => {
+    test('--help lists all three verb groups distinctly', async () => {
+      const r = await run(['--help'])
+      expect(r.stdout).toContain('credential')
+      expect(r.stdout).toContain('identity')
+      expect(r.stdout).toContain('session')
+    })
+
+    test('--llms manifest exposes all three layers as separate command groups', async () => {
+      const r = await run(['--llms', '--format', 'json'])
+      const m = parseJson(r.stdout)
+      const names: string[] = m.commands.map((c: any) => c.name)
+      // credential layer
+      expect(names).toContain('credential add')
+      expect(names).toContain('credential list')
+      expect(names).toContain('credential test')
+      // identity layer
+      expect(names).toContain('identity show')
+      expect(names).toContain('identity link')
+      expect(names).toContain('identity whoami')
+      // session layer
+      expect(names).toContain('session validate')
+      expect(names).toContain('session verify-jwks')
+    })
+  })
+
+  describe('T3 · credential keychain adapter (FR-KEY-5 backends)', () => {
+    test('credential add with memory backend stores + retrieves', async () => {
+      const acct = 'test-acct-memory-' + Date.now()
+      const addR = await run([
+        'credential', 'add', acct,
+        '--token', 'test-jwt-xyz',
+        '--backend', 'memory',
+        '--json',
+      ])
+      const addData = parseJson(addR.stdout)
+      expect(addData.backend).toBe('memory')
+      expect(addData.account).toBe(acct)
+      // Note: memory backend is per-process. Each `run()` call boots a new
+      // cli.serve() in the same process so memory persists across this test.
+      const testR = await run(['credential', 'test', acct, '--backend', 'memory', '--json'])
+      const testData = parseJson(testR.stdout)
+      expect(testData.present).toBe(true)
+    })
+
+    test('credential add requires --token (returns TOKEN_REQUIRED on absence)', async () => {
+      const r = await run(['credential', 'add', 'test-acct', '--backend', 'memory', '--json'])
+      const env = parseJson(r.stdout)
+      expect(env.code).toBe('TOKEN_REQUIRED')
+      expect(env.retryable).toBe(true)
+    })
+
+    test('credential test returns present=false for unknown account', async () => {
+      const r = await run([
+        'credential', 'test', 'never-stored-' + Date.now(),
+        '--backend', 'memory', '--json',
+      ])
+      const data = parseJson(r.stdout)
+      expect(data.present).toBe(false)
+    })
+
+    test('os backend stub returns clear NOT_IMPLEMENTED with migration CTA', async () => {
+      // The os backend is intentionally not-yet-implemented in v0.2 ·
+      // v0.3 wires @0xhoneyjar/freeside-auth-adapters/keychain
+      const r = await run([
+        'credential', 'add', 'test-os',
+        '--token', 'X', '--backend', 'os', '--json',
+      ])
+      // Throw inside run() propagates as an error envelope (incur catches)
+      // Either the test verifies error code OR catches the throw shape · be flexible
+      const out = r.stdout + r.stderr
+      expect(out).toMatch(/NOT YET IMPLEMENTED|os keychain/i)
+    })
+  })
+
+  describe('T5 scaffold · identity + session return not_implemented cleanly', () => {
+    test('identity show returns scaffolded not_implemented envelope', async () => {
+      const r = await run(['identity', 'show', 'test-user', '--json'])
+      const data = parseJson(r.stdout)
+      expect(data.status).toBe('not_implemented')
+      expect(data.layer).toBe('identity')
+      expect(data.cta).toBeDefined()
+    })
+
+    test('session validate returns scaffolded not_implemented envelope', async () => {
+      const r = await run(['session', 'validate', 'eyJtest', '--json'])
+      const data = parseJson(r.stdout)
+      expect(data.status).toBe('not_implemented')
+      expect(data.layer).toBe('session')
+      expect(data.cta).toBeDefined()
     })
   })
 })
